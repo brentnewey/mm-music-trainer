@@ -1,21 +1,27 @@
 // Score-run records: best result per song × chart × speed × stop mode.
 import type { JudgeStats, Judgment, Summary } from './game/judge';
 import { loadJson, saveJson, saveToProjectFile } from './storage';
+import type { PartId } from './song/targets';
 
 export interface Chart {
-  id: string;
+  id: PartId;
   label: string;
-  hands: string;
-  parts: number[];
+  /** Short name for buttons */
+  short: string;
+  description: string;
+  color: string;
 }
 
-/** The fixed part combinations a score run can use */
+/** The parts you can play, in practice and score runs (see buildPart) */
 export const CHARTS: Chart[] = [
-  { id: 'p1', label: 'Pulse 1', hands: 'right hand', parts: [0] },
-  { id: 'tri', label: 'Triangle', hands: 'left hand', parts: [2] },
-  { id: 'p12', label: 'Pulse 1 + 2', hands: 'right hand', parts: [0, 1] },
-  { id: 'all', label: 'All three', hands: 'both hands', parts: [0, 1, 2] },
+  { id: 'rh', label: 'Right hand', short: 'Right', description: 'melody', color: '#3cbcfc' },
+  { id: 'rhc', label: 'Right hand + chords', short: 'Right + chords', description: 'melody and harmony', color: '#f878f8' },
+  { id: 'lh', label: 'Left hand', short: 'Left', description: 'bass and accompaniment', color: '#fca044' },
+  { id: 'both', label: 'Both hands', short: 'Both', description: 'the whole arrangement', color: '#58f898' },
 ];
+
+/** Charts before parts were chosen by hand, and the hand part each is closest to */
+const CHANNEL_CHARTS: Record<string, PartId> = { p1: 'rh', p12: 'rhc', tri: 'lh', all: 'both' };
 
 /** Settings forced during score runs so records stay comparable */
 export const SCORE_RUN_RULES = { minNoteFrames: 4, octaveForgiving: false, loop: false } as const;
@@ -31,6 +37,8 @@ export interface ScoreRecord {
   /** When the best was set */
   date: number;
   plays: number;
+  /** Set when the record was carried over from a channel chart (e.g. 'p1') */
+  migratedFrom?: string;
 }
 
 export interface ScoreKey { game: string; id: number; chart: string; speed: number; stop: boolean }
@@ -72,7 +80,10 @@ export function recordRun(k: ScoreKey, stats: JudgeStats, summary: Summary): { p
 /** The chart, speed and stop setting the song list shows records for, and score runs start with */
 export interface ScoreView { chart: string; speed: number; stop: boolean }
 
-export const getScoreView = () => loadJson<ScoreView>('scoreView', { chart: 'p1', speed: 1, stop: false });
+export function getScoreView(): ScoreView {
+  const v = loadJson<ScoreView>('scoreView', { chart: 'rh', speed: 1, stop: false });
+  return { ...v, chart: CHANNEL_CHARTS[v.chart] ?? v.chart };
+}
 export const saveScoreView = (v: ScoreView) => saveJson('scoreView', v);
 export const describeView = (v: ScoreView) =>
   `${CHARTS.find((c) => c.id === v.chart)?.label ?? v.chart} · ${Math.round(v.speed * 100)}%${v.stop ? ' · stop mode' : ''}`;
@@ -85,9 +96,8 @@ export function migrateLegacyBests() {
   const all = getScores();
   for (const [k, v] of entries) {
     const [game, idHex, parts] = k.split(':');
-    const chart = CHARTS.find((c) => c.parts.join('') === parts);
-    if (!chart) continue;
-    const key = scoreKey({ game, id: parseInt(idHex, 16), chart: chart.id, speed: 1, stop: false });
+    const chart = ({ '0': 'rh', '1': 'rh', '01': 'rhc', '2': 'lh' } as Record<string, PartId>)[parts] ?? 'both';
+    const key = scoreKey({ game, id: parseInt(idHex, 16), chart, speed: 1, stop: false });
     if (all[key]) continue;
     all[key] = {
       score: Math.round(900_000 * v.accuracy), accuracy: v.accuracy, grade: v.grade, fullCombo: false, maxCombo: 0,
@@ -96,4 +106,24 @@ export function migrateLegacyBests() {
   }
   saveScores(all);
   localStorage.removeItem('bestScores');
+}
+
+/**
+ * One-time carry-over of records from the channel charts (Pulse 1, Triangle, …) to
+ * the closest hand part. The old entries are kept in the file, and the copies are
+ * marked `migratedFrom`, since the note sets differ slightly.
+ */
+export function migrateChannelCharts() {
+  const all = getScores();
+  let changed = false;
+  for (const [k, rec] of Object.entries(all)) {
+    const parts = k.split(':');
+    const to = CHANNEL_CHARTS[parts[2]];
+    if (!to) continue;
+    const key = [...parts.slice(0, 2), to, ...parts.slice(3)].join(':');
+    if (all[key]) continue;
+    all[key] = { ...rec, migratedFrom: parts[2] };
+    changed = true;
+  }
+  if (changed) saveScores(all);
 }

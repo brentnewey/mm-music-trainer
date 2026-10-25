@@ -67,22 +67,15 @@
           <button type="button" class="btn" data-mode="practice">Practice</button>
           <button type="button" class="btn" data-mode="score">Score run</button>
         </div>
-        <fieldset id="score-charts">
-          <legend>Chart</legend>
-          <div id="chart-options" class="part-options"></div>
-          <div id="score-best" class="score-best"></div>
-          <p class="hint">Score runs always use Normal notes, exact octaves and no loop, so records stay comparable.
-            A record is kept for each chart, speed and stop-mode setting; these start from the song list's selection.</p>
-        </fieldset>
-        <fieldset id="practice-parts">
+        <fieldset id="part-picker">
           <legend>Your part</legend>
-          <div id="hand-presets" class="hand-presets">
-            <button type="button" class="btn small" data-hand="right">Right hand · melody</button>
-            <button type="button" class="btn small" data-hand="left">Left hand · bass</button>
-            <button type="button" class="btn small" data-hand="both">Both hands</button>
-          </div>
           <div id="part-options" class="part-options"></div>
           <p id="range-warning" class="hint"></p>
+          <div id="score-info">
+            <div id="score-best" class="score-best"></div>
+            <p class="hint">Score runs always use Normal notes, exact octaves and no loop, so records stay comparable.
+              A record is kept for each part, speed and stop-mode setting; these start from the song list's selection.</p>
+          </div>
         </fieldset>
         <div class="grid">
           <label>Speed
@@ -122,6 +115,7 @@
           <label><input type="checkbox" name="waitMode" /> Stop mode (song stops before each note until you play it)</label>
           <label><input type="checkbox" name="octaveForgiving" /> Accept any octave</label>
           <label><input type="checkbox" name="showNoteNames" /> Show note names</label>
+          <label><input type="checkbox" name="showFingering" /> Show suggested fingering (1 = thumb … 5 = little finger)</label>
           <label><input type="checkbox" name="synthEnabled" /> Chiptune sound for my keys</label>
         </div>
         <div class="actions">
@@ -137,7 +131,7 @@
       <div class="hud">
         <div class="hud-left"><div id="hud-title"></div><div id="hud-accuracy"></div><div id="hud-pass" class="hud-pass"></div></div>
         <div class="hud-center"><div id="hud-combo"></div></div>
-        <div class="hud-right"><div id="hud-score">0</div><div class="hud-keys">Esc pause</div></div>
+        <div class="hud-right"><div id="hud-score">0</div><div class="hud-keys"><span style="color:#3cbcfc">■</span> right hand <span style="color:#fca044">■</span> left hand · Esc pause</div></div>
         <div class="progress"><div id="hud-progress"></div></div>
       </div>
       <div id="countdown" class="countdown"></div>

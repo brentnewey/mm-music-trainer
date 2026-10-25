@@ -17,7 +17,7 @@ npm test             # vitest: unit tests, plus driver integration tests when ro
 npx tsc --noEmit     # type-check (strict, noUnusedLocals)
 npm run build        # type-check + production build
 npm run extract      # Proteus.exe -> roms/ (ROMs + NSF drivers)
-npx tsx tools/discover.ts | render.ts | difficulty.ts | probe.ts   # dev inspection tools
+npx tsx tools/discover.ts | render.ts | difficulty.ts | fingering.ts | probe.ts   # dev inspection tools
 ```
 
 ## Architecture
@@ -30,21 +30,23 @@ npx tsx tools/discover.ts | render.ts | difficulty.ts | probe.ts   # dev inspect
 | `src/games.ts` | Per-game driver specs (load/play/request addresses, probe IDs) |
 | `src/song/discover.ts` | Probes sound IDs to find music tracks |
 | `src/song/analyze.ts` | Turns APU state into notes, detects loops (exact APU-write hash, or fuzzy pitch matching for MM3–6), renders PCM |
-| `src/song/targets.ts` | Notes → timed targets for the chosen parts; `partInfo`, `defaultPart` |
+| `src/song/targets.ts` | Notes → timed targets. `buildPart(a, part, opts)` (part = `rh`, `rhc`, `lh` or `both`) selects a hand's part from the full arrangement; `partChannels` picks which channels to quieten |
+| `src/song/hands.ts` | Assigns `TargetNote.hand` by register (windowed Viterbi over hand combinations); `melodyLine` picks the right hand's melody |
 | `src/song/difficulty.ts` | 1–10 difficulty rating from targets (`RATING_SCALE` tunes the curve) |
+| `src/song/fingering.ts` | Suggested fingering: per-hand Viterbi over chord fingerings with a Parncutt-style cost model; sets `TargetNote.finger`. `test/fingering.test.ts` pins textbook scale/arpeggio fingerings, so rerun it when tuning costs |
 | `src/worker/` | Heavy emulation runs in a Web Worker; `SongWorkerClient` is the main-thread API |
 | `src/game/judge.ts` | Hit windows, score (out of 1,000,000), grades, full combo |
 | `src/game/session.ts` | One play session: audio sync, stop mode, loop passes, wake lock |
-| `src/game/highway.ts` | Canvas renderer for falling notes and keyboard |
+| `src/game/highway.ts` | Canvas renderer for falling notes and keyboard (note names, finger badges, upcoming-key fingers) |
 | `src/audio/engine.ts` | Web Audio playback; `position()` is the heard-time clock (`getOutputTimestamp`) |
 | `src/input/midi.ts` | Web MIDI input, plus a computer-keyboard fallback |
-| `src/scores.ts` | Charts (`p1`, `tri`, `p12`, `all`), score records keyed `game:id:chart:speed%:stop\|flow`, the library's `ScoreView` |
+| `src/scores.ts` | Parts (`CHARTS`: `rh`, `rhc`, `lh`, `both`), score records keyed `game:id:part:speed%:stop\|flow`, the library's `ScoreView`, migrations from older chart ids |
 | `src/storage.ts` | Settings, localStorage/IndexedDB, `syncProjectFiles` (merges the JSON data files with localStorage) |
 | `src/main.ts` | Boot, library screen (score filter bar, difficulty, records), song dialog (Practice / Score run), results |
 
 ## Domain facts worth knowing
 
-- Channels: 0 = Pulse 1, 1 = Pulse 2, 2 = Triangle, 3 = Noise, 4 = DMC. Pulses are treated as right hand and Triangle as left hand.
+- Channels: 0 = Pulse 1, 1 = Pulse 2, 2 = Triangle, 3 = Noise, 4 = DMC. What you play is chosen by **hand**, not channel, because channel roles swap (Needle Man's intro has the bass on Pulse 1). Fingering, difficulty and note colours all use `TargetNote.hand`.
 - Driver entry points:
   - MM1: load/play `$9000`, request `$9003` (A = sound ID).
   - MM2–6: `$8000`/`$8003`.

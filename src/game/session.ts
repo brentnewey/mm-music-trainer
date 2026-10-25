@@ -54,6 +54,7 @@ export class Session {
     this.judge = new Judge(notes, { octaveForgiving: settings.octaveForgiving });
     this.highway = new Highway(canvas);
     this.highway.showNoteNames = settings.showNoteNames;
+    this.highway.showFingering = settings.showFingering;
     this.highway.pxPerSec = settings.scrollSpeed;
     this.highway.setRange(notes);
     const last = notes[notes.length - 1];
@@ -75,7 +76,7 @@ export class Session {
     const span = this.loopSpan!;
     while (songTime + LOOP_QUEUE_AHEAD > this.passEnd(this.queuedPasses)) {
       const shift = this.queuedPasses * span.length;
-      this.judge.append(this.loopTemplate.map((n) => ({ midi: n.midi, ch: n.ch, duration: n.duration, time: n.time + shift })));
+      this.judge.append(this.loopTemplate.map((n) => ({ midi: n.midi, ch: n.ch, hand: n.hand, finger: n.finger, duration: n.duration, time: n.time + shift })));
       this.queuedPasses++;
     }
     const k = this.passAccuracies.length + 1;

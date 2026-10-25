@@ -59,9 +59,10 @@ function topMean(values: number[], share: number) {
 
 export function rateDifficulty(targets: TargetNote[]): Difficulty {
   const sorted = [...targets].sort((a, b) => a.time - b.time);
-  // Pulse channels are right hand, triangle is left hand
-  const right = handPresses(sorted.filter((n) => n.ch !== 2));
-  const left = handPresses(sorted.filter((n) => n.ch === 2));
+  // Hands as assigned by song/hands.ts (falling back to triangle = left hand)
+  const isLeft = (n: TargetNote) => (n.hand ?? (n.ch === 2 ? 'L' : 'R')) === 'L';
+  const right = handPresses(sorted.filter((n) => !isLeft(n)));
+  const left = handPresses(sorted.filter(isLeft));
   // Pressing with both hands at once needs coordination
   let li = 0;
   for (const r of right) {

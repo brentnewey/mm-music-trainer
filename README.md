@@ -9,7 +9,7 @@ The music isn't recorded or transcribed. It's generated live by the games' own s
 ## Features
 
 - **Every track, found automatically:** 16–34 per game, including stage themes, bosses, jingles and endings.
-- **Pick your part:** Pulse 1 and Pulse 2 (right hand: melody and harmony) and Triangle (left hand: bass), alone or together.
+- **Play by hand, not by channel:** right hand (melody), right hand with chords, left hand, or both. Each note is given to a hand by where it sits on the keyboard, so when Pulse 1 plays the bass riff under the triangle (Needle Man's intro), it's the left hand's part.
 - **Practice tools:**
   - speed 50–100% without changing pitch;
   - **stop mode**, where the song waits at each note until you play it;
@@ -17,6 +17,7 @@ The music isn't recorded or transcribed. It's generated live by the games' own s
   - octave shift, filtering of very short notes, and a quiet guide for your part.
 - **Score runs:** scored out of 1,000,000 with S–D grades and full combos. A best score is kept for each song, chart, speed and stop-mode setting.
 - **Difficulty ratings (1–10)** for each chart, based on note density, hand jumps and chords.
+- **Suggested fingering:** finger numbers (1 = thumb … 5 = little finger) on every falling note, and on the keys you're about to play.
 - **Accurate sync:** the audio clock accounts for output latency, and the results screen can calibrate your personal timing offset.
 - **Track names** you assign are saved to the project. This repo ships names for almost every track in all six games.
 
@@ -50,27 +51,28 @@ Pick a game, preview a track with ▶, then click **Play**.
 
 | Option | What it does |
 |---|---|
-| Your part | Hand presets (right: melody, left: bass, both), or tick channels individually |
+| Your part | Right hand (melody), Right hand + chords, Left hand, or Both hands, with each part's notes, range and difficulty |
 | Speed | 50–100%. The audio is re-rendered, so pitch doesn't change |
 | Notes | Every note / Normal / Simplified / Long notes only (drops grace notes and arpeggio blips) |
 | Your part in the music | Muted, quiet guide, or full |
 | Loop | The intro plays once, then the loop section repeats as in the game, with per-pass accuracy. Esc → *Finish & see results* to stop |
 | Stop mode | The song stops before each note until you play it |
 | Octave shift / any octave | Fits melodies onto smaller keyboards |
+| Show suggested fingering | Finger numbers on notes and upcoming keys (on by default) |
 | Latency offset | Set from the results screen's timing calibration |
 
 ### Score runs
 
 Switch the dialog to **Score run** to play for a record.
 
-- **Charts:** Pulse 1, Triangle, Pulse 1 + 2, or All three.
-- **Records:** one best per **song × chart × speed × stop mode**.
+- **Parts:** Right hand, Right hand + chords, Left hand, or Both hands.
+- **Records:** one best per **song × part × speed × stop mode**.
 - **Score (out of 1,000,000):** 90% comes from timing accuracy (Perfect 100 / Great 70 / Good 40 per note, minus half a note per wrong press) and 10% from max combo.
 - **Grades:** S ≥ 95%, A ≥ 90%, B ≥ 80%, C ≥ 70%, otherwise D. Every note hit with no wrong presses is a ★ full combo.
 - **Fixed rules:** Normal notes, exact octaves and no loop, so records stay comparable.
 - **Stop mode:** timing isn't judged, so the score reflects correct notes and wrong presses.
 
-The bar above the song list chooses which chart, speed and stop mode the list shows records and difficulty for, and score runs start from that selection. Tracks that don't use the selected chart's channels are hidden.
+The bar above the song list chooses which part, speed and stop mode the list shows records and difficulty for, and score runs start from that selection. Tracks without notes for the selected part are hidden.
 
 ### Difficulty
 
@@ -80,14 +82,40 @@ Ratings come from the exact notes a score run uses, at the selected speed.
 - **Both hands at once:** adds 0.25.
 - **Combining:** the cost per second is measured over 4-second windows, blending the busiest stretches (60%) with the average (40%).
 
-Hover a rating to see presses per second, average jump size and chord share. A typical Pulse 1 chart rates about 4, Pulse 1 + 2 about 5.5, and All three about 7 at full speed.
+Hover a rating to see presses per second, average jump size and chord share. At full speed, a typical song rates about 4 for Right hand, 5.5 for Right hand + chords, 5 for Left hand, and 7 for Both hands.
+
+### Which hand plays what
+
+NES channels don't map neatly onto hands. Usually the pulses carry melody and harmony and the triangle the bass, but channels swap roles, sometimes within a song. So each note is given to a hand by register (`src/song/hands.ts`):
+
+- **Windows:** the song is cut into 2-second windows.
+- **Scoring each window:** every combination of hands for the parts playing in that window is scored.
+  - Low parts lean left and high parts lean right.
+  - Crossed hands cost extra.
+  - So do three parts in one hand, two parts more than an octave apart in one hand, and two parts in one hand while the other hand is free.
+- **Smoothing:** the cheapest sequence is found with a charge for each part that changes hands. Each switch is moved to the nearest rest in that part.
+
+**Right hand** (melody) keeps one line from the right hand's parts, normally the highest. It won't jump to an echo channel copying the melody a moment later.
+
+In practice, the channels that mostly carry your part are the ones turned down by "Your part in the music".
+
+### Suggested fingering
+
+Fingering is predicted for each hand separately, using the hands chosen above. It uses dynamic programming (Viterbi) to find the cheapest finger sequence through the whole song under an ergonomic cost model, based on Parncutt et al. (1997), *An ergonomic model of keyboard fingering for melodic fragments*. The model charges for:
+- stretches beyond comfortable spans for each pair of fingers;
+- the weaker 4th and 5th fingers;
+- the thumb or little finger on a black key next to white keys;
+- 3 followed by 4;
+- reusing a finger on a different key.
+
+A thumb pass under fingers 2–4 counts as a hand shift, so scales come out with their textbook fingerings: C, G, D and F major, ascending and descending, in both hands. Chords get one finger per key in pitch order, and transitions across rests count for less because the hand can reposition. It's a suggestion, not a rule: NES melodies leap a lot, and an octave-plus leap is fingered as a hand jump.
 
 ### Your data
 
 | File | Contents | In git |
 |---|---|---|
 | `track-names.json` | Names you give tracks (✎ rename) | Yes, so you can share names |
-| `scores.json` | Your score-run records | No (gitignored) |
+| `scores.json` | Your score-run records. Records from the earlier channel charts were copied to the nearest hand part (Pulse 1 → Right, Pulse 1 + 2 → Right + chords, Triangle → Left, All three → Both) and marked `migratedFrom` | No (gitignored) |
 
 The dev server writes both files, and the browser keeps a copy, so they survive clearing browser data.
 
@@ -115,6 +143,8 @@ npm run extract                            # dump ROMs and sound drivers to roms
 npx tsx tools/discover.ts                  # list discovered tracks for every game
 npx tsx tools/render.ts mm2 1 out.wav      # print notes and render a track to WAV
 npx tsx tools/difficulty.ts [speed]        # difficulty ratings for every chart of every song
+npx tsx tools/fingering.ts mm2 0 both 40   # suggested fingering for a track and part
+npx tsx tools/hands.ts mm3 1 both          # which hand plays each channel over time (--summary for all songs)
 npm run probe -- mm3 8000 806c 40          # disassemble a sound driver
 ```
 

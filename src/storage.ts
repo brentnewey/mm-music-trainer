@@ -59,6 +59,8 @@ export interface Settings {
   minNoteFrames: number;
   octaveForgiving: boolean;
   showNoteNames: boolean;
+  /** Show suggested finger numbers on notes and keys */
+  showFingering: boolean;
   /** Added to the song clock when judging (ms); positive if you tend to be judged late */
   latencyOffsetMs: number;
   /** Pixels per second of fall speed */
@@ -78,6 +80,7 @@ export const DEFAULT_SETTINGS: Settings = {
   minNoteFrames: 4,
   octaveForgiving: false,
   showNoteNames: true,
+  showFingering: true,
   latencyOffsetMs: 0,
   scrollSpeed: 260,
   octaveShift: 0,

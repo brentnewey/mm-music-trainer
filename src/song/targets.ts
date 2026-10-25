@@ -1,46 +1,25 @@
-import type { Note, SongAnalysis } from './analyze';
+import type { SongAnalysis } from './analyze';
 import { FRAME_SECONDS } from './analyze';
 import type { TargetNote } from '../game/judge';
+import { assignHands, melodyLine } from './hands';
 
-export interface PartInfo {
-  ch: number;
-  count: number;
-  lo: number;
-  hi: number;
-}
+export interface TargetOptions { minFrames: number; speed: number; octaveShift: number }
 
-export function partInfo(notes: Note[], minFrames: number): PartInfo[] {
-  return [0, 1, 2].map((ch) => {
-    const ns = notes.filter((n) => n.ch === ch && n.end - n.start >= minFrames);
-    return {
-      ch,
-      count: ns.length,
-      lo: ns.length ? Math.min(...ns.map((n) => n.midi)) : 0,
-      hi: ns.length ? Math.max(...ns.map((n) => n.midi)) : 0,
-    };
-  });
-}
-
-/** Guesses the lead part: the pulse channel carrying the most sustained notes. */
-export function defaultPart(notes: Note[]): number {
-  const weight = [0, 0];
-  for (const n of notes) {
-    if (n.ch < 2 && n.end - n.start >= 4) weight[n.ch] += (n.end - n.start) * (n.midi >= 60 ? 1.2 : 1);
-  }
-  return weight[1] > weight[0] * 1.1 ? 1 : 0;
-}
+/** What you play: a hand's part of the arrangement */
+export type PartId = 'rh' | 'rhc' | 'lh' | 'both';
 
 /**
- * Converts analyzed notes into timed targets for the chosen parts.
- * Unisons across channels (same pitch, starting within 2 frames) are merged.
+ * Converts analyzed notes on the given channels into timed targets, each with the
+ * hand expected to play it. Unisons across channels (same pitch, starting within
+ * 2 frames) are merged.
  */
-export function buildTargets(a: SongAnalysis, parts: number[], opts: { minFrames: number; speed: number; octaveShift: number }): TargetNote[] {
+export function buildTargets(a: SongAnalysis, channels: number[], opts: TargetOptions): TargetNote[] {
   const scale = FRAME_SECONDS / opts.speed;
   const picked = a.notes
-    .filter((n) => parts.includes(n.ch) && n.end - n.start >= opts.minFrames && n.start < a.endFrame)
+    .filter((n) => channels.includes(n.ch) && n.end - n.start >= opts.minFrames && n.start < a.endFrame)
     .sort((x, y) => x.start - y.start || x.ch - y.ch);
   const out: TargetNote[] = [];
-  const recent: Note[] = [];
+  const recent: typeof picked = [];
   for (const n of picked) {
     while (recent.length && n.start - recent[0].start > 2) recent.shift();
     if (recent.some((r) => r.midi === n.midi && r.ch !== n.ch)) continue;
@@ -52,5 +31,39 @@ export function buildTargets(a: SongAnalysis, parts: number[], opts: { minFrames
       ch: n.ch,
     });
   }
+  assignHands(out, opts.speed, 12 * opts.octaveShift);
   return out;
+}
+
+/**
+ * Targets for one hand's part. Hands are decided on the whole arrangement (both
+ * pulses and the triangle), so a part can draw on any channel: in Needle Man's
+ * intro the left hand plays Pulse 1's bass riff.
+ * - `rh`: the right hand's melody (one line, no chords)
+ * - `rhc`: everything the right hand plays, chords included
+ * - `lh`: everything the left hand plays
+ * - `both`: the whole arrangement
+ */
+export function buildPart(a: SongAnalysis, part: PartId, opts: TargetOptions): TargetNote[] {
+  const all = buildTargets(a, [0, 1, 2], opts);
+  if (part === 'both') return all;
+  if (part === 'lh') return all.filter((n) => n.hand === 'L');
+  const right = all.filter((n) => n.hand === 'R');
+  return part === 'rhc' ? right : melodyLine(right, opts.speed, 12 * opts.octaveShift);
+}
+
+/** Channels carrying mostly this part's notes (muted or quietened in the backing track) */
+export function partChannels(a: SongAnalysis, part: PartId, opts: TargetOptions): number[] {
+  const all = buildTargets(a, [0, 1, 2], opts);
+  const mine = new Set(buildPart(a, part, opts).map((n) => `${n.ch}:${n.time}`));
+  return [0, 1, 2].filter((ch) => {
+    const ns = all.filter((n) => n.ch === ch);
+    return ns.length > 0 && ns.filter((n) => mine.has(`${n.ch}:${n.time}`)).length / ns.length >= 0.5;
+  });
+}
+
+/** Note count and pitch range of a set of targets */
+export function rangeOf(notes: TargetNote[]) {
+  const ps = notes.map((n) => n.midi);
+  return { count: notes.length, lo: Math.min(...ps), hi: Math.max(...ps) };
 }

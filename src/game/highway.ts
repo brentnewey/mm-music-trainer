@@ -6,8 +6,9 @@ const BLACK = new Set([1, 3, 6, 8, 10]);
 export const noteName = (m: number) => NOTE_NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1);
 export const isBlack = (m: number) => BLACK.has(((m % 12) + 12) % 12);
 
-// Per-channel colours: Pulse 1, Pulse 2, Triangle
-export const CHANNEL_COLORS = ['#3cbcfc', '#f878f8', '#fca044'];
+// Notes are coloured by the hand that plays them
+export const HAND_COLORS = { R: '#3cbcfc', L: '#fca044' };
+const noteColor = (n: TargetNote) => HAND_COLORS[n.hand ?? (n.ch === 2 ? 'L' : 'R')];
 const JUDGE_COLORS: Record<Judgment, string> = { perfect: '#80f0ff', great: '#58f898', good: '#f8d878', miss: '#f85858' };
 
 interface Popup { text: string; color: string; x: number; born: number }
@@ -24,6 +25,7 @@ export class Highway {
   /** key -> 'good' | 'bad' highlight while held */
   keyState = new Map<number, 'good' | 'bad'>();
   showNoteNames = true;
+  showFingering = true;
   pxPerSec = 260;
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -122,6 +124,7 @@ export class Highway {
     ctx.fillRect(0, hitY - 8, w, 6);
 
     this.drawKeyboard(hitY, wallTime);
+    if (this.showFingering) this.drawKeyFingers(notes, songTime, hitY);
     this.drawPopups(wallTime, hitY);
   }
 
@@ -132,7 +135,7 @@ export class Highway {
     const height = Math.max(8, n.duration * this.pxPerSec - 2);
     const yTop = yBottom - height;
     const pad = isBlack(n.midi) ? 1 : 3;
-    let color = CHANNEL_COLORS[n.ch] ?? '#ccc';
+    let color = noteColor(n);
     let alpha = 1;
     if (n.judgment === 'miss') { color = '#5a5a6a'; alpha = 0.6; }
     else if (n.judgment) { color = JUDGE_COLORS[n.judgment]; alpha = 0.55; }
@@ -143,12 +146,20 @@ export class Highway {
     ctx.strokeStyle = 'rgba(0,0,0,0.5)';
     ctx.lineWidth = 1;
     ctx.stroke();
+    let labelBottom = yBottom - 3;
+    if (this.showFingering && n.finger && !n.judgment) {
+      // Finger number in a dark badge at the note's leading edge
+      const radius = Math.min(9, r.w / 2 - 1);
+      const cy = yBottom - radius - 2;
+      fingerBadge(ctx, n.finger, r.x + r.w / 2, cy, radius, '#0b0f24', '#fff');
+      labelBottom = cy - radius - 2;
+    }
     if (this.showNoteNames && r.w >= 14) {
       ctx.fillStyle = '#0b0f24';
       ctx.font = `bold ${Math.min(13, r.w * 0.45)}px "Press Start 2P", monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.fillText(NOTE_NAMES[n.midi % 12].replace('#', '♯'), r.x + r.w / 2, yBottom - 3);
+      ctx.fillText(NOTE_NAMES[n.midi % 12].replace('#', '♯'), r.x + r.w / 2, labelBottom);
     }
     ctx.globalAlpha = 1;
   }
@@ -184,6 +195,19 @@ export class Highway {
     this.flashes = this.flashes.filter((f) => wallTime - f.born < 0.3);
   }
 
+  /** Finger numbers on the keys of notes about to be played */
+  private drawKeyFingers(notes: TargetNote[], songTime: number, top: number) {
+    const kh = this.keyboardH;
+    for (const n of notes) {
+      if (n.time > songTime + KEY_FINGER_AHEAD) break;
+      if (n.judgment || !n.finger || n.time < songTime - 0.3 || n.midi < this.lo || n.midi > this.hi) continue;
+      const r = this.keyRect(n.midi);
+      const radius = Math.min(10, r.w / 2 - 1);
+      const cy = top + (isBlack(n.midi) ? kh * 0.4 : kh * 0.72);
+      fingerBadge(this.ctx, n.finger, r.x + r.w / 2, cy, radius, noteColor(n), '#0b0f24');
+    }
+  }
+
   private drawPopups(wallTime: number, hitY: number) {
     const { ctx } = this;
     ctx.font = '12px "Press Start 2P", monospace';
@@ -198,6 +222,22 @@ export class Highway {
     }
     ctx.globalAlpha = 1;
   }
+}
+
+/** How far ahead (seconds) upcoming notes show their finger on the keyboard */
+const KEY_FINGER_AHEAD = 0.6;
+
+function fingerBadge(ctx: CanvasRenderingContext2D, finger: number, cx: number, cy: number, radius: number, bg: string, fg: string) {
+  if (radius < 4) return;
+  ctx.fillStyle = bg;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = fg;
+  ctx.font = `${Math.round(radius * 1.1)}px "Press Start 2P", monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(String(finger), cx, cy + 1);
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {

@@ -4,25 +4,25 @@ import { SongWorkerClient } from './worker/protocol';
 import { AudioEngine } from './audio/engine';
 import { NoteInput } from './input/midi';
 import { Session, type SessionHud, type SessionResult } from './game/session';
-import { CHANNEL_COLORS, noteName } from './game/highway';
-import { buildTargets, defaultPart, partInfo } from './song/targets';
+import { noteName } from './game/highway';
+import { buildPart, partChannels, rangeOf, type PartId } from './song/targets';
 import { FRAME_SECONDS, type SongAnalysis } from './song/analyze';
 import { rateDifficulty, type Difficulty } from './song/difficulty';
+import { assignFingering } from './song/fingering';
 import type { DiscoveredTrack } from './song/discover';
+import type { TargetNote } from './game/judge';
 import {
   getSettings, saveSettings, loadBlob, saveBlob, loadJson, saveJson, getTrackNames, saveTrackNames,
   trackKey, syncProjectFiles, type Settings,
 } from './storage';
 import {
-  CHARTS, SCORE_RUN_RULES, bestFor, describeView, getScoreView, migrateLegacyBests, recordRun, saveScoreView,
+  CHARTS, SCORE_RUN_RULES, bestFor, describeView, getScoreView, migrateChannelCharts, migrateLegacyBests, recordRun, saveScoreView,
   type Chart, type ScoreKey,
 } from './scores';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const SAMPLE_RATE = 44100;
-const PART_NAMES = ['Pulse 1', 'Pulse 2', 'Triangle'];
 const DISCOVERY_VERSION = 1;
-const CHART_SHORT: Record<string, string> = { p1: 'Pulse 1', tri: 'Triangle', p12: 'Pulse 1+2', all: 'All three' };
 
 const worker = new SongWorkerClient();
 const audio = new AudioEngine();
@@ -38,6 +38,7 @@ let previewing: string | null = null;
 async function boot() {
   await Promise.all([input.init(), syncProjectFiles()]);
   migrateLegacyBests();
+  migrateChannelCharts();
   renderMidiStatus();
   input.onDevicesChanged(renderMidiStatus);
   input.onRawMidi(showMidiActivity);
@@ -153,8 +154,8 @@ function renderScoreFilter() {
   for (const c of CHARTS) {
     const b = document.createElement('button');
     b.className = 'btn small' + (c.id === view.chart ? ' active' : '');
-    b.textContent = CHART_SHORT[c.id];
-    b.title = `${c.label} (${c.hands})`;
+    b.textContent = c.short;
+    b.title = `${c.label}: ${c.description}`;
     b.onclick = () => update({ chart: c.id });
     box.append(b);
   }
@@ -189,17 +190,24 @@ async function loadTracks(game: GameInfo) {
   }
 }
 
-const difficulties = new Map<string, Difficulty>();
+const partCache = new Map<string, { notes: TargetNote[]; difficulty?: Difficulty }>();
 
-/** Difficulty of a chart at a speed, as played in score runs */
-function chartDifficulty(gameId: string, a: SongAnalysis, chart: Chart, speed: number) {
+/** A part's notes at a speed, as played in score runs (cached) */
+function partEntry(gameId: string, a: SongAnalysis, chart: Chart, speed: number) {
   const key = `${gameId}:${a.id}:${chart.id}:${speed}`;
-  let d = difficulties.get(key);
-  if (!d) {
-    d = rateDifficulty(buildTargets(a, chart.parts, { minFrames: SCORE_RUN_RULES.minNoteFrames, speed, octaveShift: 0 }));
-    difficulties.set(key, d);
+  let e = partCache.get(key);
+  if (!e) {
+    e = { notes: buildPart(a, chart.id, { minFrames: SCORE_RUN_RULES.minNoteFrames, speed, octaveShift: 0 }) };
+    partCache.set(key, e);
   }
-  return d;
+  return e;
+}
+const partTargets = (gameId: string, a: SongAnalysis, chart: Chart, speed: number) => partEntry(gameId, a, chart, speed).notes;
+
+/** Difficulty of a part at a speed, as played in score runs */
+function chartDifficulty(gameId: string, a: SongAnalysis, chart: Chart, speed: number) {
+  const e = partEntry(gameId, a, chart, speed);
+  return (e.difficulty ??= rateDifficulty(e.notes));
 }
 
 function difficultyBadge(d: Difficulty) {
@@ -228,8 +236,8 @@ function renderTrackList() {
     const a = analyses.get(key);
     // Record for the selected chart / speed / stop setting
     const rec = bestFor({ game: currentGame.id, id: t.id, ...view });
-    // Hide tracks that don't use the selected chart's channels (numbers stay stable)
-    if (a && !chart.parts.every((ch) => partInfo(a.notes, SCORE_RUN_RULES.minNoteFrames)[ch].count > 0)) return;
+    // Hide tracks without notes for the selected part (numbers stay stable)
+    if (a && !partTargets(currentGame.id, a, chart, 1).length) return;
     shown++;
     const diff = a ? `<td>${difficultyBadge(chartDifficulty(currentGame.id, a, chart, view.speed))}</td>` : '<td>…</td>';
     if (rec) { played++; if (rec.fullCombo) fullCombos++; }
@@ -316,57 +324,6 @@ async function openSongDialog(t: DiscoveredTrack, title: string) {
   const dialog = $<HTMLDialogElement>('song-dialog');
   const form = $<HTMLFormElement>('song-form');
   $('song-title').textContent = `${currentGame.title} — ${title}`;
-
-  const remembered = loadJson<Record<string, number[]>>('parts', {})[trackKey(currentGame.id, t.id)];
-  // Pulse channels carry melody/harmony (right hand); the triangle is the bass (left hand)
-  const lead = defaultPart(a.notes);
-  const presets: Record<string, number[]> = { right: [lead], left: [2], both: [lead, 2] };
-  const chosen = new Set(remembered ?? presets.right);
-  const markPreset = () => {
-    const key = [...chosen].sort().join();
-    for (const b of document.querySelectorAll<HTMLButtonElement>('#hand-presets [data-hand]')) {
-      b.classList.toggle('active', [...presets[b.dataset.hand!]].sort().join() === key);
-    }
-  };
-  for (const b of document.querySelectorAll<HTMLButtonElement>('#hand-presets [data-hand]')) {
-    b.onclick = () => {
-      chosen.clear();
-      presets[b.dataset.hand!].forEach((ch) => chosen.add(ch));
-      renderParts();
-    };
-  }
-  const renderParts = () => {
-    const info = partInfo(a.notes, Number((form.elements.namedItem('minNoteFrames') as HTMLSelectElement).value));
-    const box = $('part-options');
-    box.innerHTML = '';
-    for (const p of info) {
-      const label = document.createElement('label');
-      label.style.color = CHANNEL_COLORS[p.ch];
-      label.innerHTML = `<input type="checkbox" ${chosen.has(p.ch) ? 'checked' : ''} ${p.count ? '' : 'disabled'} />
-        <span class="hand">${p.ch === 2 ? 'left hand' : 'right hand'}</span>
-        <span class="swatch" style="background:${CHANNEL_COLORS[p.ch]}"></span>${PART_NAMES[p.ch]}${p.ch === lead ? ' (lead)' : ''}
-        <small>${p.count ? `${p.count} notes · ${noteName(p.lo)}–${noteName(p.hi)}` : 'no notes'}</small>`;
-      label.querySelector('input')!.onchange = (e) => {
-        if ((e.target as HTMLInputElement).checked) chosen.add(p.ch); else chosen.delete(p.ch);
-        updateRangeWarning();
-        markPreset();
-      };
-      box.append(label);
-    }
-    updateRangeWarning();
-    markPreset();
-  };
-  const updateRangeWarning = () => {
-    const shift = Number((form.elements.namedItem('octaveShift') as HTMLSelectElement).value) * 12;
-    const ns = a.notes.filter((n) => chosen.has(n.ch));
-    const lo = Math.min(...ns.map((n) => n.midi)) + shift;
-    const hi = Math.max(...ns.map((n) => n.midi)) + shift;
-    $('range-warning').textContent = ns.length
-      ? `Needs keys ${noteName(lo)}–${noteName(hi)}.` + (lo < 36 || hi > 96 ? ' That is outside a 61-key keyboard (C2–C7); try an octave shift.' : '')
-      : 'Pick at least one part.';
-    $<HTMLButtonElement>('play-btn').disabled = !ns.length;
-  };
-
   const field = (name: string) => form.elements.namedItem(name) as HTMLInputElement;
   for (const [k, v] of Object.entries(settings)) {
     const el = field(k);
@@ -375,58 +332,64 @@ async function openSongDialog(t: DiscoveredTrack, title: string) {
     else el.value = String(v);
   }
 
-  // ---- score-run charts ----
+  let mode = loadJson<{ mode: 'practice' | 'score' }>('mode', { mode: 'practice' }).mode;
   const songKey = trackKey(currentGame.id, t.id);
-  const counts = partInfo(a.notes, SCORE_RUN_RULES.minNoteFrames).map((p) => p.count);
-  const available = (c: Chart) => c.parts.every((ch) => counts[ch] > 0);
-  // Score runs start from the song list's chart / speed / stop selection
+  // Score runs start from the song list's part / speed / stop selection; practice remembers a part per song
   const view = getScoreView();
-  let chart = CHARTS.find((c) => c.id === view.chart && available(c)) ?? CHARTS.find(available) ?? CHARTS[0];
+  const practiceMemo = loadJson<Record<string, PartId>>('practicePart', {});
+  const targetOpts = () => ({
+    minFrames: Number(field('minNoteFrames').value), speed: Number(field('speed').value), octaveShift: Number(field('octaveShift').value),
+  });
+  const notesFor = (c: Chart) => buildPart(a, c.id, targetOpts());
+  const available = (c: Chart) => partTargets(currentGame.id, a, c, 1).length > 0;
+  let chart = CHARTS.find((c) => c.id === (mode === 'score' ? view.chart : practiceMemo[songKey] ?? 'rh') && available(c))
+    ?? CHARTS.find(available) ?? CHARTS[0];
   const currentScoreKey = (): ScoreKey => ({ game: currentGame.id, id: t.id, chart: chart.id, speed: Number(field('speed').value), stop: field('waitMode').checked });
-  const chartLabels = new Map<Chart, HTMLElement>();
-  /** Difficulty depends on speed, so refresh it alongside the best score */
-  const renderDifficulty = () => {
-    const speed = Number(field('speed').value);
-    for (const [c, label] of chartLabels) {
-      const slot = label.querySelector('.diff-slot');
-      if (slot) slot.innerHTML = difficultyBadge(chartDifficulty(currentGame.id, a, c, speed));
-    }
-  };
+
   const renderBest = () => {
-    renderDifficulty();
-    const rec = bestFor(currentScoreKey());
     const k = currentScoreKey();
+    const rec = bestFor(k);
     const desc = `${chart.label} · ${Math.round(k.speed * 100)}%${k.stop ? ' · stop mode' : ''}`;
     $('score-best').innerHTML = rec
       ? `Best (${escapeHtml(desc)}): <b class="${gradeClass(rec.grade)}">${rec.score.toLocaleString()} ${rec.grade}</b> · ${(rec.accuracy * 100).toFixed(1)}%${rec.fullCombo ? ' <span class="fc">FULL COMBO</span>' : ''} · ${rec.plays} play${rec.plays === 1 ? '' : 's'}`
       : `No record yet for ${escapeHtml(desc)}.`;
   };
-  const renderCharts = () => {
-    const box = $('chart-options');
+  const updateRangeWarning = () => {
+    const ns = notesFor(chart);
+    const { lo, hi } = rangeOf(ns);
+    $('range-warning').textContent = ns.length
+      ? `Needs keys ${noteName(lo)}–${noteName(hi)}.` + (lo < 36 || hi > 96 ? ' That is outside a 61-key keyboard (C2–C7); try an octave shift.' : '')
+      : 'This part has no notes with the current Notes setting.';
+    $<HTMLButtonElement>('play-btn').disabled = !ns.length;
+  };
+  /** Part radios with note counts, ranges and difficulty for the current settings */
+  const renderParts = () => {
+    const box = $('part-options');
     box.innerHTML = '';
+    const speed = Number(field('speed').value);
     for (const c of CHARTS) {
-      const ok = available(c);
+      const ns = notesFor(c);
+      const ok = ns.length > 0;
+      const { lo, hi } = rangeOf(ns);
       const label = document.createElement('label');
       label.className = ok ? '' : 'disabled';
-      label.style.color = CHANNEL_COLORS[c.parts.length === 1 ? c.parts[0] : 0];
-      const notes = c.parts.reduce((s, ch) => s + counts[ch], 0);
-      label.innerHTML = `<input type="radio" name="chart" ${c === chart ? 'checked' : ''} ${ok ? '' : 'disabled'} />
-        <span class="hand">${c.hands}</span>${c.label}<small>${ok ? `${notes} notes · difficulty <span class="diff-slot"></span>` : 'not in this song'}</small>`;
-      label.querySelector('input')!.onchange = () => { chart = c; view.chart = c.id; renderBest(); };
-      chartLabels.set(c, label);
+      label.style.color = c.color;
+      label.innerHTML = `<input type="radio" name="part" ${c === chart ? 'checked' : ''} ${ok ? '' : 'disabled'} />
+        <span class="hand">${ok ? difficultyBadge(chartDifficulty(currentGame.id, a, c, speed)) : ''}</span>${c.label}
+        <small>${ok ? `${c.description} · ${ns.length} notes · ${noteName(lo)}–${noteName(hi)}` : 'not in this song'}</small>`;
+      label.querySelector('input')!.onchange = () => { chart = c; renderBest(); updateRangeWarning(); };
       box.append(label);
     }
     renderBest();
+    updateRangeWarning();
   };
 
   // ---- practice / score mode ----
-  let mode = loadJson<{ mode: 'practice' | 'score' }>('mode', { mode: 'practice' }).mode;
   const locked = ['minNoteFrames', 'octaveForgiving', 'loop'] as const;
   const setMode = (m: typeof mode) => {
     mode = m;
     for (const b of document.querySelectorAll<HTMLButtonElement>('#mode-switch [data-mode]')) b.classList.toggle('active', b.dataset.mode === m);
-    $('score-charts').hidden = m !== 'score';
-    $('practice-parts').hidden = m !== 'practice';
+    $('score-info').hidden = m !== 'score';
     // Score runs use fixed rules; show them and restore practice values afterwards
     for (const k of locked) {
       const el = field(k);
@@ -437,29 +400,23 @@ async function openSongDialog(t: DiscoveredTrack, title: string) {
     // Speed and stop mode are kept separately for practice and score runs
     field('speed').value = String(m === 'score' ? view.speed : settings.speed);
     field('waitMode').checked = m === 'score' ? view.stop : settings.waitMode;
-    renderBest();
-    $<HTMLButtonElement>('play-btn').disabled = m === 'practice' && !chosen.size;
-    if (m === 'practice') renderParts();
+    renderParts();
   };
   for (const b of document.querySelectorAll<HTMLButtonElement>('#mode-switch [data-mode]')) {
     b.onclick = () => setMode(b.dataset.mode as typeof mode);
   }
-
-  renderParts();
-  renderCharts();
   setMode(mode);
   field('minNoteFrames').onchange = renderParts;
-  field('octaveShift').onchange = updateRangeWarning;
+  field('octaveShift').onchange = renderParts;
   const onRecordSetting = () => {
     if (mode === 'score') Object.assign(view, { speed: Number(field('speed').value), stop: field('waitMode').checked });
-    renderBest();
+    renderParts();
   };
   field('speed').onchange = onRecordSetting;
   field('waitMode').onchange = onRecordSetting;
 
   dialog.onclose = () => {
     if (dialog.returnValue !== 'play') return;
-    if (mode === 'practice' && !chosen.size) return;
     const next: Settings = { ...settings };
     for (const k of Object.keys(settings) as (keyof Settings)[]) {
       const el = field(k);
@@ -471,12 +428,11 @@ async function openSongDialog(t: DiscoveredTrack, title: string) {
     if (mode === 'score') {
       const key = currentScoreKey();
       saveScoreView({ chart: chart.id, speed: key.speed, stop: key.stop });
-      startSession(t, title, a, chart.parts, { ...next, ...SCORE_RUN_RULES, speed: key.speed, waitMode: key.stop }, { chart, key });
+      startSession(t, title, a, chart, { ...next, ...SCORE_RUN_RULES, speed: key.speed, waitMode: key.stop }, { chart, key });
     } else {
-      const partsMemo = loadJson<Record<string, number[]>>('parts', {});
-      partsMemo[songKey] = [...chosen].sort();
-      saveJson('parts', partsMemo);
-      startSession(t, title, a, [...chosen].sort(), next, null);
+      practiceMemo[songKey] = chart.id;
+      saveJson('practicePart', practiceMemo);
+      startSession(t, title, a, chart, next, null);
     }
   };
   dialog.returnValue = '';
@@ -490,16 +446,19 @@ let session: Session | null = null;
 /** A score run's chart and record key; null for practice */
 type ScoreRun = { chart: Chart; key: ScoreKey } | null;
 
-async function startSession(t: DiscoveredTrack, title: string, a: SongAnalysis, parts: number[], settings: Settings, scoreRun: ScoreRun) {
+async function startSession(t: DiscoveredTrack, title: string, a: SongAnalysis, part: Chart, settings: Settings, scoreRun: ScoreRun) {
   showScreen('play-screen');
   $('loading').hidden = false;
   $('results-overlay').hidden = true;
   $('pause-overlay').hidden = true;
   $('hud-title').textContent = scoreRun
-    ? `${title} · ${scoreRun.chart.label} · ${Math.round(settings.speed * 100)}%${settings.waitMode ? ' · STOP' : ''}`
-    : title;
+    ? `${title} · ${part.label} · ${Math.round(settings.speed * 100)}%${settings.waitMode ? ' · STOP' : ''}`
+    : `${title} · ${part.label}`;
   await audio.resume();
-  const gains = [0, 1, 2, 3, 4].map((ch) => (parts.includes(ch) ? settings.myPartVolume : 1));
+  const opts = { minFrames: settings.minNoteFrames, speed: settings.speed, octaveShift: settings.octaveShift };
+  // Quieten the channels that mostly carry your part
+  const mine = partChannels(a, part.id, opts);
+  const gains = [0, 1, 2, 3, 4].map((ch) => (mine.includes(ch) ? settings.myPartVolume : 1));
   const pcm = await worker.render(currentGame.id, t.id, {
     sampleRate: SAMPLE_RATE, gains, speed: settings.speed, endFrame: a.endFrame,
     fadeSeconds: a.loopStart >= 0 && !settings.loop ? 3 : 0,
@@ -513,8 +472,9 @@ async function startSession(t: DiscoveredTrack, title: string, a: SongAnalysis, 
   audio.setLoop(loopSpan && { start: loopSpan.start, end: loopSpan.start + loopSpan.length });
   $('loading').hidden = true;
 
-  const notes = buildTargets(a, parts, { minFrames: settings.minNoteFrames, speed: settings.speed, octaveShift: settings.octaveShift });
-  const restart = () => { session?.destroy(); startSession(t, title, a, parts, settings, scoreRun); };
+  const notes = buildPart(a, part.id, opts);
+  assignFingering(notes);
+  const restart = () => { session?.destroy(); startSession(t, title, a, part, settings, scoreRun); };
   const quit = () => { session?.destroy(); session = null; document.onkeydown = null; showLibrary(); };
 
   session?.destroy();

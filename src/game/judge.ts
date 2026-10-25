@@ -11,6 +11,10 @@ export interface TargetNote {
   time: number;
   duration: number;
   ch: number;
+  /** Hand expected to play the note (see song/hands.ts) */
+  hand?: 'L' | 'R';
+  /** Suggested finger, 1 (thumb) to 5 */
+  finger?: number;
   judgment?: Judgment;
   /** played - expected, seconds (negative = early) */
   offset?: number;
