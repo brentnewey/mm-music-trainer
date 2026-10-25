@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mega Man Keys</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230070ec'/%3E%3Crect x='3' y='3' width='3' height='10' fill='%23fff'/%3E%3Crect x='10' y='3' width='3' height='10' fill='%23fff'/%3E%3Crect x='6' y='3' width='4' height='6' fill='%2306081a'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>MEGA MAN <span>KEYS</span></h1>
+      <div id="midi-status" class="midi-status"></div>
+    </header>
+
+    <!-- First run: load the game executable -->
+    <section id="setup-screen" class="screen" hidden>
+      <div class="panel setup">
+        <h2>Load your game</h2>
+        <p>
+          Songs are read straight from your copy of the <b>Mega Man Legacy Collection</b> (Steam).
+          Choose its <code>Proteus.exe</code>; only the sound drivers are kept, in this browser.
+        </p>
+        <p>It wasn't found in the default Steam folder, so please point to it. It is usually at:</p>
+        <p class="path">C:\Program Files (x86)\Steam\steamapps\common\Suzy\Proteus.exe</p>
+        <p class="hint">Tip: click the button below, then paste that path into the file dialog's name box. In Steam: right-click the game → Manage → Browse local files.</p>
+        <label class="btn primary file-btn">
+          Choose Proteus.exe
+          <input id="exe-input" type="file" accept=".exe" hidden />
+        </label>
+        <div id="drop-zone" class="drop-zone">…or drop it here</div>
+        <p id="setup-error" class="error"></p>
+      </div>
+    </section>
+
+    <!-- Song browser -->
+    <section id="library-screen" class="screen" hidden>
+      <nav id="game-tabs" class="game-tabs"></nav>
+      <div class="panel">
+        <div class="score-filter">
+          <span class="filter-label">Records for</span>
+          <div id="filter-charts" class="seg"></div>
+          <select id="filter-speed">
+            <option value="0.5">50%</option><option value="0.6">60%</option><option value="0.7">70%</option>
+            <option value="0.8">80%</option><option value="0.9">90%</option><option value="1">100%</option>
+          </select>
+          <label class="filter-stop"><input type="checkbox" id="filter-stop" /> Stop mode</label>
+          <span id="filter-summary" class="filter-summary"></span>
+        </div>
+        <div id="track-status" class="track-status"></div>
+        <table class="tracks">
+          <thead><tr><th>#</th><th>Track</th><th>Type</th><th>Length</th><th title="Difficulty of the selected chart at the selected speed (1–10). Hover a rating for details.">Difficulty</th><th>Best score</th><th></th></tr></thead>
+          <tbody id="track-list"></tbody>
+        </table>
+      </div>
+      <p class="footnote">Keyboard fallback: A W S E D F T G Y H U J K O L P ; play notes from C4; Z / X shift octave.</p>
+    </section>
+
+    <!-- Song options -->
+    <dialog id="song-dialog" class="panel dialog">
+      <form method="dialog" id="song-form">
+        <h2 id="song-title"></h2>
+        <div id="mode-switch" class="mode-switch">
+          <button type="button" class="btn" data-mode="practice">Practice</button>
+          <button type="button" class="btn" data-mode="score">Score run</button>
+        </div>
+        <fieldset id="score-charts">
+          <legend>Chart</legend>
+          <div id="chart-options" class="part-options"></div>
+          <div id="score-best" class="score-best"></div>
+          <p class="hint">Score runs always use Normal notes, exact octaves and no loop, so records stay comparable.
+            A record is kept for each chart, speed and stop-mode setting; these start from the song list's selection.</p>
+        </fieldset>
+        <fieldset id="practice-parts">
+          <legend>Your part</legend>
+          <div id="hand-presets" class="hand-presets">
+            <button type="button" class="btn small" data-hand="right">Right hand · melody</button>
+            <button type="button" class="btn small" data-hand="left">Left hand · bass</button>
+            <button type="button" class="btn small" data-hand="both">Both hands</button>
+          </div>
+          <div id="part-options" class="part-options"></div>
+          <p id="range-warning" class="hint"></p>
+        </fieldset>
+        <div class="grid">
+          <label>Speed
+            <select name="speed">
+              <option value="0.5">50%</option><option value="0.6">60%</option><option value="0.7">70%</option>
+              <option value="0.8">80%</option><option value="0.9">90%</option><option value="1">100%</option>
+            </select>
+          </label>
+          <label>Notes
+            <select name="minNoteFrames">
+              <option value="1">Every note</option><option value="4">Normal</option>
+              <option value="8">Simplified</option><option value="14">Long notes only</option>
+            </select>
+          </label>
+          <label>Your part in the music
+            <select name="myPartVolume">
+              <option value="0">Muted</option><option value="0.3">Quiet guide</option><option value="1">Full</option>
+            </select>
+          </label>
+          <label>Octave shift
+            <select name="octaveShift">
+              <option value="-2">−2</option><option value="-1">−1</option><option value="0">0</option>
+              <option value="1">+1</option><option value="2">+2</option>
+            </select>
+          </label>
+          <label>Fall speed
+            <select name="scrollSpeed">
+              <option value="160">Slow</option><option value="260">Normal</option><option value="380">Fast</option>
+            </select>
+          </label>
+          <label>Latency offset (ms)
+            <input name="latencyOffsetMs" type="number" step="5" />
+          </label>
+        </div>
+        <div class="checks">
+          <label><input type="checkbox" name="loop" /> Loop (keep repeating the song until you choose Finish)</label>
+          <label><input type="checkbox" name="waitMode" /> Stop mode (song stops before each note until you play it)</label>
+          <label><input type="checkbox" name="octaveForgiving" /> Accept any octave</label>
+          <label><input type="checkbox" name="showNoteNames" /> Show note names</label>
+          <label><input type="checkbox" name="synthEnabled" /> Chiptune sound for my keys</label>
+        </div>
+        <div class="actions">
+          <button value="cancel" class="btn">Cancel</button>
+          <button value="play" class="btn primary" id="play-btn">Play ▶</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Gameplay -->
+    <section id="play-screen" class="screen play" hidden>
+      <canvas id="highway"></canvas>
+      <div class="hud">
+        <div class="hud-left"><div id="hud-title"></div><div id="hud-accuracy"></div><div id="hud-pass" class="hud-pass"></div></div>
+        <div class="hud-center"><div id="hud-combo"></div></div>
+        <div class="hud-right"><div id="hud-score">0</div><div class="hud-keys">Esc pause</div></div>
+        <div class="progress"><div id="hud-progress"></div></div>
+      </div>
+      <div id="countdown" class="countdown"></div>
+      <div id="wait-banner" class="wait-banner"></div>
+      <div id="pass-banner" class="pass-banner"></div>
+      <div id="pause-overlay" class="overlay" hidden>
+        <div class="panel">
+          <h2>Paused</h2>
+          <div class="actions column">
+            <button class="btn primary" data-action="resume">Resume</button>
+            <button class="btn" data-action="finish">Finish &amp; see results</button>
+            <button class="btn" data-action="restart">Restart</button>
+            <button class="btn" data-action="quit">Quit</button>
+          </div>
+        </div>
+      </div>
+      <div id="results-overlay" class="overlay" hidden>
+        <div class="panel results">
+          <div id="res-grade" class="grade"></div>
+          <div id="res-body"></div>
+          <div class="actions">
+            <button class="btn" data-action="quit">Songs</button>
+            <button class="btn primary" data-action="restart">Retry</button>
+          </div>
+        </div>
+      </div>
+      <div id="loading" class="overlay" hidden><div class="panel">Loading…</div></div>
+    </section>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

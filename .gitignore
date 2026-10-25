@@ -1,0 +1,9 @@
+node_modules/
+dist/
+# Extracted game data - copyrighted, never commit
+roms/
+public/songs/
+scratch/
+
+# Personal score records (track-names.json is shared)
+scores.json
