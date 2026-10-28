@@ -30,8 +30,8 @@ npx tsx tools/discover.ts | render.ts | difficulty.ts | fingering.ts | probe.ts 
 | `src/games.ts` | Per-game driver specs (load/play/request addresses, probe IDs) |
 | `src/song/discover.ts` | Probes sound IDs to find music tracks |
 | `src/song/analyze.ts` | Turns APU state into notes, detects loops (exact APU-write hash, or fuzzy pitch matching for MM3–6), renders PCM |
-| `src/song/targets.ts` | Notes → timed targets. `buildPart(a, part, opts)` (part = `rh`, `rhc`, `lh` or `both`) selects a hand's part from the full arrangement; `partChannels` picks which channels to quieten |
-| `src/song/hands.ts` | Assigns `TargetNote.hand` by register (windowed Viterbi over hand combinations); `melodyLine` picks the right hand's melody |
+| `src/song/targets.ts` | Notes → timed targets. `buildPart(a, part, opts)` (part = `right`, `p1`, `p2`, `lh` or `both`) selects a hand's notes (`p1`/`p2`: the right hand's notes on one pulse); `partChannels` picks which channels to quieten |
+| `src/song/hands.ts` | Assigns `TargetNote.hand` by channel (pulses right, triangle left) plus per-song rules from `src/song/handOverrides.ts` (keyed by `trackKey`, passed as `TargetOptions.track`). Check with `tools/hands.ts` |
 | `src/song/difficulty.ts` | 1–10 difficulty rating from targets (`RATING_SCALE` tunes the curve) |
 | `src/song/fingering.ts` | Suggested fingering: per-hand Viterbi over chord fingerings with a Parncutt-style cost model; sets `TargetNote.finger`. `test/fingering.test.ts` pins textbook scale/arpeggio fingerings, so rerun it when tuning costs |
 | `src/worker/` | Heavy emulation runs in a Web Worker; `SongWorkerClient` is the main-thread API |
@@ -40,13 +40,14 @@ npx tsx tools/discover.ts | render.ts | difficulty.ts | fingering.ts | probe.ts 
 | `src/game/highway.ts` | Canvas renderer for falling notes and keyboard (note names, finger badges, upcoming-key fingers) |
 | `src/audio/engine.ts` | Web Audio playback; `position()` is the heard-time clock (`getOutputTimestamp`) |
 | `src/input/midi.ts` | Web MIDI input, plus a computer-keyboard fallback |
-| `src/scores.ts` | Parts (`CHARTS`: `rh`, `rhc`, `lh`, `both`), score records keyed `game:id:part:speed%:stop\|flow`, the library's `ScoreView`, migrations from older chart ids |
+| `src/scores.ts` | Parts (`CHARTS`: `right`, `p1`, `p2`, `lh`, `both`), score records keyed `game:id:part:speed%:stop\|flow`, the library's `ScoreView`, migrations from older chart ids. Retired parts (`rh` melody-only, `rhc`, channel charts) keep their records in the file, hidden |
 | `src/storage.ts` | Settings, localStorage/IndexedDB, `syncProjectFiles` (merges the JSON data files with localStorage) |
+| `src/sectionPicker.ts` | Song-dialog timeline for choosing a practice section (100%-speed seconds, snapped to note onsets, remembered per song in localStorage `practiceSection`) |
 | `src/main.ts` | Boot, library screen (score filter bar, difficulty, records), song dialog (Practice / Score run), results |
 
 ## Domain facts worth knowing
 
-- Channels: 0 = Pulse 1, 1 = Pulse 2, 2 = Triangle, 3 = Noise, 4 = DMC. What you play is chosen by **hand**, not channel, because channel roles swap (Needle Man's intro has the bass on Pulse 1). Fingering, difficulty and note colours all use `TargetNote.hand`.
+- Channels: 0 = Pulse 1, 1 = Pulse 2, 2 = Triangle, 3 = Noise, 4 = DMC. What you play is chosen by **hand**. Hands follow the channels (pulses right, triangle left) except where `handOverrides.ts` lists a song whose roles swap (Needle Man's intro has the bass on Pulse 1). Automatic register-based hand assignment and melody/chord extraction were tried and dropped as unreliable; the user adds overrides for songs they identify. Fingering, difficulty and note colours all use `TargetNote.hand`.
 - Driver entry points:
   - MM1: load/play `$9000`, request `$9003` (A = sound ID).
   - MM2–6: `$8000`/`$8003`.

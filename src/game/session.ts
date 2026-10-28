@@ -6,7 +6,8 @@ import { Judge, POINTS, WINDOWS, summarize, type TargetNote, type JudgeStats, ty
 import type { Settings } from '../storage';
 import { keepScreenAwake } from '../wakeLock';
 
-const LEAD_IN = 3;
+/** Count-in before play starts, and before each repeat of a looped section (seconds) */
+export const LEAD_IN = 3;
 /** Notes this close together are treated as one chord in wait mode */
 const CHORD_EPSILON = 0.03;
 
@@ -19,8 +20,15 @@ export interface SessionHud {
   }): void;
 }
 
-/** Song-time span of the repeating section (seconds) */
+/**
+ * Song-time span of the repeating section (seconds). A looped practice section
+ * starts its span a little before the section, so the music leading into it
+ * replays (with a countdown) before every pass.
+ */
 export interface LoopSpan { start: number; length: number }
+
+/** Song-time span (seconds) of a practice section; notes outside it should already be dropped */
+export interface PlayRange { start: number; end: number }
 
 /** How far ahead of the song clock the next pass's notes are queued */
 const LOOP_QUEUE_AHEAD = 15;
@@ -40,6 +48,10 @@ export class Session {
   /** Accuracy of each completed pass */
   private passAccuracies: number[] = [];
   private passBanner: { text: string; until: number } | null = null;
+  /** Song time play starts from (the count-in plays the music just before it) */
+  private startPos: number;
+  /** Seconds of music replayed before each repeat of a looped section */
+  private passLeadIn = 0;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -50,6 +62,7 @@ export class Session {
     private hud: SessionHud,
     private onFinish: (r: SessionResult) => void,
     private loopSpan: LoopSpan | null = null,
+    range: PlayRange | null = null,
   ) {
     this.judge = new Judge(notes, { octaveForgiving: settings.octaveForgiving });
     this.highway = new Highway(canvas);
@@ -58,11 +71,14 @@ export class Session {
     this.highway.pxPerSec = settings.scrollSpeed;
     this.highway.setRange(notes);
     const last = notes[notes.length - 1];
+    this.startPos = range?.start ?? 0;
+    if (loopSpan && range) this.passLeadIn = range.start - loopSpan.start;
     if (loopSpan) {
       this.endTime = Infinity;
       this.loopTemplate = notes.filter((n) => n.time >= loopSpan.start - 0.001).map((n) => ({ ...n }));
     } else {
       this.endTime = Math.min(audio.duration, last ? last.time + last.duration + 1.5 : audio.duration);
+      if (range) this.endTime = Math.min(this.endTime, range.end + 0.5);
     }
   }
 
@@ -104,7 +120,7 @@ export class Session {
     const onResize = () => this.highway.resize();
     window.addEventListener('resize', onResize);
     this.unsub.push(() => window.removeEventListener('resize', onResize));
-    this.audio.play(-LEAD_IN);
+    this.audio.play(this.startPos - LEAD_IN);
     keepScreenAwake(true);
     this.loop();
   }
@@ -168,18 +184,28 @@ export class Session {
       score: s.score,
       combo: s.combo,
       accuracy: judged ? summarize({ ...s, total: judged }).accuracy : 1,
-      progress: Math.max(0, Math.min(1, this.loopSpan ? this.loopProgress(songTime) : songTime / this.endTime)),
+      progress: Math.max(0, Math.min(1, this.loopSpan ? this.loopProgress(songTime) : (songTime - this.startPos) / (this.endTime - this.startPos))),
       waiting: this.waitingFor.length ? this.waitingFor.filter((n) => !n.judgment).map((n) => noteName(n.midi)).join(' + ') : null,
-      countdown: songTime < 0 ? Math.ceil(-songTime) : null,
+      countdown: this.countdown(songTime),
       pass: this.loopSpan ? this.passAccuracies.length + 1 : null,
       passBanner: this.passBanner && wall < this.passBanner.until ? this.passBanner.text : null,
     });
   };
 
+  /** Seconds-left count shown before play starts and before each repeat of a section */
+  private countdown(songTime: number) {
+    // (clamped: audio start latency puts the clock a hair before the count-in at first)
+    if (songTime < this.startPos) return Math.min(LEAD_IN, Math.ceil(this.startPos - songTime));
+    const span = this.loopSpan;
+    if (!span || !this.passLeadIn || songTime < span.start + span.length) return null;
+    const into = (songTime - span.start) % span.length;
+    return into < this.passLeadIn ? Math.ceil(this.passLeadIn - into) : null;
+  }
+
   /** Progress through the current pass (the intro counts as part of pass 1). */
   private loopProgress(songTime: number) {
     const k = this.passAccuracies.length + 1;
-    const from = k === 1 ? 0 : this.passEnd(k - 1);
+    const from = k === 1 ? this.startPos : this.passEnd(k - 1);
     return (songTime - from) / (this.passEnd(k) - from);
   }
 

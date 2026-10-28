@@ -3,7 +3,8 @@ import { extractFromProteus } from './rom/extract';
 import { SongWorkerClient } from './worker/protocol';
 import { AudioEngine } from './audio/engine';
 import { NoteInput } from './input/midi';
-import { Session, type SessionHud, type SessionResult } from './game/session';
+import { LEAD_IN, Session, type SessionHud, type SessionResult } from './game/session';
+import { SectionPicker, formatClock, type Section } from './sectionPicker';
 import { noteName } from './game/highway';
 import { buildPart, partChannels, rangeOf, type PartId } from './song/targets';
 import { FRAME_SECONDS, type SongAnalysis } from './song/analyze';
@@ -197,7 +198,7 @@ function partEntry(gameId: string, a: SongAnalysis, chart: Chart, speed: number)
   const key = `${gameId}:${a.id}:${chart.id}:${speed}`;
   let e = partCache.get(key);
   if (!e) {
-    e = { notes: buildPart(a, chart.id, { minFrames: SCORE_RUN_RULES.minNoteFrames, speed, octaveShift: 0 }) };
+    e = { notes: buildPart(a, chart.id, { minFrames: SCORE_RUN_RULES.minNoteFrames, speed, octaveShift: 0, track: trackKey(gameId, a.id) }) };
     partCache.set(key, e);
   }
   return e;
@@ -212,7 +213,7 @@ function chartDifficulty(gameId: string, a: SongAnalysis, chart: Chart, speed: n
 
 function difficultyBadge(d: Difficulty) {
   const tier = d.rating < 3 ? 'easy' : d.rating < 5 ? 'normal' : d.rating < 7 ? 'hard' : d.rating < 8.5 ? 'expert' : 'insane';
-  const title = `${d.nps.toFixed(1)} presses/s (busiest ${d.peakNps.toFixed(1)}) · average jump ${d.leap.toFixed(1)} semitones · ${Math.round(d.chordShare * 100)}% chords`;
+  const title = `${d.nps.toFixed(1)} presses/s (busiest ${d.peakNps.toFixed(1)}) · average jump ${d.leap.toFixed(1)} semitones · ${Math.round(d.chordShare * 100)}% chords · ${d.variety.toFixed(1)} different notes per 4 s`;
   return `<span class="diff ${tier}" title="${title}">${d.rating.toFixed(1)}</span>`;
 }
 
@@ -316,6 +317,9 @@ async function togglePreview(t: DiscoveredTrack) {
 
 // ---------- song options ----------
 
+let sectionPicker: SectionPicker | null = null;
+const describeSection = (s: Section) => `${formatClock(s.start)} – ${formatClock(s.end)}`;
+
 async function openSongDialog(t: DiscoveredTrack, title: string) {
   audio.stop();
   previewing = null;
@@ -337,12 +341,13 @@ async function openSongDialog(t: DiscoveredTrack, title: string) {
   // Score runs start from the song list's part / speed / stop selection; practice remembers a part per song
   const view = getScoreView();
   const practiceMemo = loadJson<Record<string, PartId>>('practicePart', {});
+  const sectionMemo = loadJson<Record<string, Section>>('practiceSection', {});
   const targetOpts = () => ({
-    minFrames: Number(field('minNoteFrames').value), speed: Number(field('speed').value), octaveShift: Number(field('octaveShift').value),
+    minFrames: Number(field('minNoteFrames').value), speed: Number(field('speed').value), octaveShift: Number(field('octaveShift').value), track: songKey,
   });
   const notesFor = (c: Chart) => buildPart(a, c.id, targetOpts());
   const available = (c: Chart) => partTargets(currentGame.id, a, c, 1).length > 0;
-  let chart = CHARTS.find((c) => c.id === (mode === 'score' ? view.chart : practiceMemo[songKey] ?? 'rh') && available(c))
+  let chart = CHARTS.find((c) => c.id === (mode === 'score' ? view.chart : practiceMemo[songKey] ?? 'right') && available(c))
     ?? CHARTS.find(available) ?? CHARTS[0];
   const currentScoreKey = (): ScoreKey => ({ game: currentGame.id, id: t.id, chart: chart.id, speed: Number(field('speed').value), stop: field('waitMode').checked });
 
@@ -354,6 +359,25 @@ async function openSongDialog(t: DiscoveredTrack, title: string) {
       ? `Best (${escapeHtml(desc)}): <b class="${gradeClass(rec.grade)}">${rec.score.toLocaleString()} ${rec.grade}</b> · ${(rec.accuracy * 100).toFixed(1)}%${rec.fullCombo ? ' <span class="fc">FULL COMBO</span>' : ''} · ${rec.plays} play${rec.plays === 1 ? '' : 's'}`
       : `No record yet for ${escapeHtml(desc)}.`;
   };
+  // Practice section: drawn from the chosen part at 100% speed, kept per song
+  const renderSectionLabel = (s: Section | null) => {
+    const count = s ? sectionPicker!.notesIn(s) : 0;
+    $('section-label').innerHTML = s
+      ? `Practising <b>${describeSection(s)}</b> · ${(s.end - s.start).toFixed(1)} s at 100% · ${count} note${count === 1 ? '' : 's'}`
+      : 'Whole song. Drag across the timeline to practise one section.';
+    $<HTMLButtonElement>('section-clear').disabled = !s;
+  };
+  sectionPicker ??= new SectionPicker($('section-canvas'), (s) => renderSectionLabel(s));
+  const picker = sectionPicker;
+  const updateSection = () => {
+    picker.setNotes(buildPart(a, chart.id, { ...targetOpts(), speed: 1 }), a.endFrame * FRAME_SECONDS, a.loopStart >= 0 ? a.loopStart * FRAME_SECONDS : -1);
+    renderSectionLabel(picker.section);
+  };
+  picker.setSection(null);
+  updateSection();
+  picker.setSection(sectionMemo[songKey] ?? null);
+  $('section-clear').onclick = () => { picker.setSection(null); renderSectionLabel(null); };
+
   const updateRangeWarning = () => {
     const ns = notesFor(chart);
     const { lo, hi } = rangeOf(ns);
@@ -377,11 +401,12 @@ async function openSongDialog(t: DiscoveredTrack, title: string) {
       label.innerHTML = `<input type="radio" name="part" ${c === chart ? 'checked' : ''} ${ok ? '' : 'disabled'} />
         <span class="hand">${ok ? difficultyBadge(chartDifficulty(currentGame.id, a, c, speed)) : ''}</span>${c.label}
         <small>${ok ? `${c.description} · ${ns.length} notes · ${noteName(lo)}–${noteName(hi)}` : 'not in this song'}</small>`;
-      label.querySelector('input')!.onchange = () => { chart = c; renderBest(); updateRangeWarning(); };
+      label.querySelector('input')!.onchange = () => { chart = c; renderBest(); updateRangeWarning(); updateSection(); };
       box.append(label);
     }
     renderBest();
     updateRangeWarning();
+    updateSection();
   };
 
   // ---- practice / score mode ----
@@ -390,6 +415,9 @@ async function openSongDialog(t: DiscoveredTrack, title: string) {
     mode = m;
     for (const b of document.querySelectorAll<HTMLButtonElement>('#mode-switch [data-mode]')) b.classList.toggle('active', b.dataset.mode === m);
     $('score-info').hidden = m !== 'score';
+    // Sections and the slowest speeds are for practice only
+    $('section-picker').hidden = m === 'score';
+    for (const o of form.querySelectorAll<HTMLOptionElement>('.practice-only')) { o.disabled = m === 'score'; o.hidden = m === 'score'; }
     // Score runs use fixed rules; show them and restore practice values afterwards
     for (const k of locked) {
       const el = field(k);
@@ -428,11 +456,13 @@ async function openSongDialog(t: DiscoveredTrack, title: string) {
     if (mode === 'score') {
       const key = currentScoreKey();
       saveScoreView({ chart: chart.id, speed: key.speed, stop: key.stop });
-      startSession(t, title, a, chart, { ...next, ...SCORE_RUN_RULES, speed: key.speed, waitMode: key.stop }, { chart, key });
+      startSession(t, title, a, chart, { ...next, ...SCORE_RUN_RULES, speed: key.speed, waitMode: key.stop }, { chart, key }, null);
     } else {
       practiceMemo[songKey] = chart.id;
       saveJson('practicePart', practiceMemo);
-      startSession(t, title, a, chart, next, null);
+      if (picker.section) sectionMemo[songKey] = picker.section; else delete sectionMemo[songKey];
+      saveJson('practiceSection', sectionMemo);
+      startSession(t, title, a, chart, next, null, picker.section);
     }
   };
   dialog.returnValue = '';
@@ -446,39 +476,57 @@ let session: Session | null = null;
 /** A score run's chart and record key; null for practice */
 type ScoreRun = { chart: Chart; key: ScoreKey } | null;
 
-async function startSession(t: DiscoveredTrack, title: string, a: SongAnalysis, part: Chart, settings: Settings, scoreRun: ScoreRun) {
+/** `section` (practice only) is in song seconds at 100% speed */
+async function startSession(t: DiscoveredTrack, title: string, a: SongAnalysis, part: Chart, settings: Settings, scoreRun: ScoreRun, section: Section | null) {
   showScreen('play-screen');
   $('loading').hidden = false;
   $('results-overlay').hidden = true;
   $('pause-overlay').hidden = true;
   $('hud-title').textContent = scoreRun
     ? `${title} · ${part.label} · ${Math.round(settings.speed * 100)}%${settings.waitMode ? ' · STOP' : ''}`
-    : `${title} · ${part.label}`;
+    : `${title} · ${part.label}${settings.speed !== 1 ? ` · ${Math.round(settings.speed * 100)}%` : ''}${section ? ` · ${describeSection(section)}` : ''}`;
   await audio.resume();
-  const opts = { minFrames: settings.minNoteFrames, speed: settings.speed, octaveShift: settings.octaveShift };
+  const opts = { minFrames: settings.minNoteFrames, speed: settings.speed, octaveShift: settings.octaveShift, track: trackKey(currentGame.id, t.id) };
   // Quieten the channels that mostly carry your part
   const mine = partChannels(a, part.id, opts);
   const gains = [0, 1, 2, 3, 4].map((ch) => (mine.includes(ch) ? settings.myPartVolume : 1));
+  // A section only needs audio up to its end (plus a little run-out when it doesn't loop)
+  const endFrame = section ? Math.min(a.endFrame, Math.ceil(section.end / FRAME_SECONDS) + (settings.loop ? 1 : 60)) : a.endFrame;
   const pcm = await worker.render(currentGame.id, t.id, {
-    sampleRate: SAMPLE_RATE, gains, speed: settings.speed, endFrame: a.endFrame,
-    fadeSeconds: a.loopStart >= 0 && !settings.loop ? 3 : 0,
+    sampleRate: SAMPLE_RATE, gains, speed: settings.speed, endFrame,
+    fadeSeconds: a.loopStart >= 0 && !settings.loop && !section ? 3 : 0,
   });
-  audio.setSong(pcm, SAMPLE_RATE);
-  // Loop the song's own loop section; songs that end (jingles, etc.) repeat from the top
   const secs = FRAME_SECONDS / settings.speed;
-  const loopSpan = settings.loop
-    ? { start: Math.max(0, a.loopStart) * secs, length: (a.endFrame - Math.max(0, a.loopStart)) * secs }
-    : null;
+  // A looped section replays the music that leads into it before each pass. When there's
+  // less than LEAD_IN of song before it, pad the audio with silence so the lead-in still fits
+  const padSamples = section && settings.loop ? Math.max(0, Math.round((LEAD_IN - section.start / settings.speed) * SAMPLE_RATE)) : 0;
+  const pad = padSamples / SAMPLE_RATE;
+  let song = pcm;
+  if (padSamples) {
+    song = new Float32Array(padSamples + pcm.length);
+    song.set(pcm, padSamples);
+  }
+  audio.setSong(song, SAMPLE_RATE);
+  const range = section && { start: section.start / settings.speed + pad, end: section.end / settings.speed + pad };
+  // Loop the section with its lead-in, or else the song's own loop; songs that end (jingles, etc.) repeat from the top
+  const loopSpan = !settings.loop ? null
+    : range ? { start: range.start - LEAD_IN, length: range.end - range.start + LEAD_IN }
+    : { start: Math.max(0, a.loopStart) * secs, length: (a.endFrame - Math.max(0, a.loopStart)) * secs };
   audio.setLoop(loopSpan && { start: loopSpan.start, end: loopSpan.start + loopSpan.length });
   $('loading').hidden = true;
 
-  const notes = buildPart(a, part.id, opts);
+  let notes = buildPart(a, part.id, opts);
+  // Finger the whole part so a section's first notes get fingers that fit what came before
   assignFingering(notes);
-  const restart = () => { session?.destroy(); startSession(t, title, a, part, settings, scoreRun); };
+  if (range) {
+    notes = notes.map((n) => ({ ...n, time: n.time + pad }))
+      .filter((n) => n.time >= range.start - 1e-3 && n.time < range.end - 1e-3);
+  }
+  const restart = () => { session?.destroy(); startSession(t, title, a, part, settings, scoreRun, section); };
   const quit = () => { session?.destroy(); session = null; document.onkeydown = null; showLibrary(); };
 
   session?.destroy();
-  session = new Session($<HTMLCanvasElement>('highway'), audio, input, notes, settings, hud, (r) => showResults(r, settings, scoreRun), loopSpan);
+  session = new Session($<HTMLCanvasElement>('highway'), audio, input, notes, settings, hud, (r) => showResults(r, settings, scoreRun), loopSpan, range);
   session.start();
 
   for (const btn of document.querySelectorAll<HTMLButtonElement>('#play-screen [data-action]')) {

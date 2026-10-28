@@ -1,6 +1,10 @@
+import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { assignHands, melodyLine } from '../src/song/hands';
+import { assignHands } from '../src/song/hands';
 import type { TargetNote } from '../src/game/judge';
+import { GAMES } from '../src/games';
+import { analyzeSong } from '../src/song/analyze';
+import { buildPart } from '../src/song/targets';
 
 /** A channel playing the given pitches in turn, 4 notes a second, for `seconds` */
 const part = (ch: number, pitches: number[], seconds: number, start = 0): TargetNote[] =>
@@ -8,58 +12,64 @@ const part = (ch: number, pitches: number[], seconds: number, start = 0): Target
 const handsOf = (notes: TargetNote[], ch: number) => new Set(notes.filter((n) => n.ch === ch).map((n) => n.hand));
 
 describe('assignHands', () => {
-  it('gives the usual layout: pulses to the right hand, a low triangle to the left', () => {
-    const notes = [...part(0, [72, 74, 76], 10), ...part(1, [67, 69], 10), ...part(2, [45, 52], 10)];
+  it('gives the pulses to the right hand and the triangle to the left, whatever the register', () => {
+    // Ring Man: the triangle's G4 hits sit among the pulse chords but stay in the left hand
+    const notes = [...part(0, [72, 74, 76], 10), ...part(1, [62, 74], 10), ...part(2, [43, 67], 10)];
     assignHands(notes);
     expect(handsOf(notes, 0)).toEqual(new Set(['R']));
     expect(handsOf(notes, 1)).toEqual(new Set(['R']));
     expect(handsOf(notes, 2)).toEqual(new Set(['L']));
   });
 
-  it('follows register, not channel: a pulse bass under the triangle goes to the left hand', () => {
-    // Needle Man's intro: Pulse 1 plays a riff around A#2 while the triangle plays around C5
-    const notes = [...part(0, [46, 49, 51], 10), ...part(2, [70, 72, 73], 10)];
-    assignHands(notes);
-    expect(handsOf(notes, 0)).toEqual(new Set(['L']));
-    expect(handsOf(notes, 2)).toEqual(new Set(['R']));
-  });
-
-  it('swaps hands when the channels swap roles, at a gap in the notes', () => {
-    const notes = [
-      ...part(0, [46, 49], 8), ...part(2, [70, 72], 8),
-      ...part(0, [72, 76], 8, 9), ...part(2, [45, 48], 8, 9),
-    ];
-    assignHands(notes);
+  it("applies a song's override rules within their time range", () => {
+    // Needle Man's intro: Pulse 1 plays the bass riff under the triangle until 16.7 s
+    const notes = [...part(0, [46, 49, 51], 20), ...part(2, [70, 72, 73], 20)];
+    assignHands(notes, 1, [{ ch: 0, hand: 'L', to: 16.7 }, { ch: 2, hand: 'R', to: 16.7 }]);
     const p1 = notes.filter((n) => n.ch === 0);
-    expect(p1.filter((n) => n.time < 8).every((n) => n.hand === 'L')).toBe(true);
-    expect(p1.filter((n) => n.time >= 9).every((n) => n.hand === 'R')).toBe(true);
+    expect(new Set(p1.filter((n) => n.time < 16.7).map((n) => n.hand))).toEqual(new Set(['L']));
+    expect(new Set(p1.filter((n) => n.time >= 16.7).map((n) => n.hand))).toEqual(new Set(['R']));
+    expect(handsOf(notes.filter((n) => n.time < 16.7), 2)).toEqual(new Set(['R']));
   });
 
-  it('never leaves three parts in one hand when they share a register', () => {
-    // Pulse 2 and the triangle sit together around F4, under a high Pulse 1
-    const notes = [...part(0, [79, 81], 10), ...part(1, [65, 67], 10), ...part(2, [64, 66], 10)];
-    assignHands(notes);
-    const left = [0, 1, 2].filter((ch) => handsOf(notes, ch).has('L'));
-    expect(left.length).toBeGreaterThanOrEqual(1);
-    expect(handsOf(notes, 0)).toEqual(new Set(['R']));
-  });
-
-  it('judges register before an octave shift', () => {
-    const notes = part(2, [45, 48], 6).map((n) => ({ ...n, midi: n.midi + 24 }));
-    assignHands(notes, 1, 24);
-    expect(handsOf(notes, 2)).toEqual(new Set(['L']));
+  it('applies rules in song time, at any speed', () => {
+    const notes = part(0, [46], 10).map((n) => ({ ...n, time: n.time * 2 }));
+    assignHands(notes, 0.5, [{ ch: 0, hand: 'L', from: 5 }]);
+    expect(notes.find((n) => n.time === 9.5)!.hand).toBe('R');
+    expect(notes.find((n) => n.time === 10)!.hand).toBe('L');
   });
 });
 
-describe('melodyLine', () => {
-  it('keeps the top line and drops the harmony under it', () => {
-    const notes = [...part(0, [76, 79], 6), ...part(1, [67, 71], 6)];
-    expect(new Set(melodyLine(notes).map((n) => n.ch))).toEqual(new Set([0]));
+describe.skipIf(!fs.existsSync('roms/nsf/mm3.bin'))('Needle Man (MM3)', () => {
+  const game = GAMES.find((g) => g.id === 'mm3')!;
+  const a = analyzeSong(new Uint8Array(fs.readFileSync('roms/nsf/mm3.bin')), game.driver, 1);
+  const opts = { minFrames: 4, speed: 1, octaveShift: 0, track: 'mm3:01' };
+
+  it('plays the intro bass riff on Pulse 1 with the left hand', () => {
+    const notes = buildPart(a, 'both', opts);
+    const intro = notes.filter((n) => n.time < 16.7);
+    expect(handsOf(intro, 0)).toEqual(new Set(['L']));
+    expect(handsOf(intro, 2)).toEqual(new Set(['R']));
+    expect(handsOf(notes.filter((n) => n.time >= 16.7), 0)).toEqual(new Set(['R']));
   });
 
-  it('does not hand the melody to an echo channel at the same pitch', () => {
-    const lead = part(0, [72, 74, 76], 8);
-    const echo = lead.map((n) => ({ ...n, ch: 1, time: n.time + 0.1 }));
-    expect(new Set(melodyLine([...lead, ...echo]).map((n) => n.ch))).toEqual(new Set([0]));
+  it('splits the song into parts by hand, with every note in exactly one hand', () => {
+    const both = buildPart(a, 'both', opts);
+    const right = buildPart(a, 'right', opts);
+    const left = buildPart(a, 'lh', opts);
+    expect(right.length + left.length).toBe(both.length);
+    // After the intro the right hand is both pulses, every note of them
+    const later = (ns: TargetNote[]) => ns.filter((n) => n.time >= 16.7);
+    expect(later(right).length).toBe(later(both).filter((n) => n.ch < 2).length);
+  });
+
+  it('offers each pulse alone as an easier right hand', () => {
+    const p1 = buildPart(a, 'p1', opts);
+    const p2 = buildPart(a, 'p2', opts);
+    expect(new Set(p1.map((n) => n.ch))).toEqual(new Set([0]));
+    expect(new Set(p2.map((n) => n.ch))).toEqual(new Set([1]));
+    // Pulse 1's bass riff in the intro belongs to the left hand, so it isn't in the Pulse 1 part
+    expect(p1.every((n) => n.hand === 'R' && n.time >= 16.7)).toBe(true);
+    // Together they cover the right hand's pulse notes, plus any unisons a full build merges
+    expect(p1.length + p2.length).toBeGreaterThanOrEqual(buildPart(a, 'right', opts).filter((n) => n.ch < 2).length);
   });
 });

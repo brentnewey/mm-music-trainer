@@ -9,10 +9,11 @@ The music isn't recorded or transcribed. It's generated live by the games' own s
 ## Features
 
 - **Every track, found automatically:** 16–34 per game, including stage themes, bosses, jingles and endings.
-- **Play by hand, not by channel:** right hand (melody), right hand with chords, left hand, or both. Each note is given to a hand by where it sits on the keyboard, so when Pulse 1 plays the bass riff under the triangle (Needle Man's intro), it's the left hand's part.
+- **Play by hand:** right hand (both pulses, or one pulse alone as an easier version), left hand (the triangle), or both. Songs where channels swap roles get per-song exceptions, such as Needle Man's intro, where Pulse 1 plays the bass riff.
 - **Practice tools:**
-  - speed 50–100% without changing pitch;
+  - speed 25–100% without changing pitch;
   - **stop mode**, where the song waits at each note until you play it;
+  - **sections:** drag across a timeline to practise one passage, once or on repeat;
   - seamless looping of the game's loop section;
   - octave shift, filtering of very short notes, and a quiet guide for your part.
 - **Score runs:** scored out of 1,000,000 with S–D grades and full combos. A best score is kept for each song, chart, speed and stop-mode setting.
@@ -51,11 +52,12 @@ Pick a game, preview a track with ▶, then click **Play**.
 
 | Option | What it does |
 |---|---|
-| Your part | Right hand (melody), Right hand + chords, Left hand, or Both hands, with each part's notes, range and difficulty |
-| Speed | 50–100%. The audio is re-rendered, so pitch doesn't change |
+| Your part | Right hand, Pulse 1 only, Pulse 2 only, Left hand, or Both hands, with each part's notes, range and difficulty |
+| Section | Drag across the timeline of your part's notes to practise one passage. Edges snap to notes; drag an edge to adjust it or the middle to move it. *Whole song* clears it. The section is remembered per song, and the count-in plays the music just before it |
+| Speed | 25–100% (score runs: 50–100%). The audio is re-rendered, so pitch doesn't change |
 | Notes | Every note / Normal / Simplified / Long notes only (drops grace notes and arpeggio blips) |
 | Your part in the music | Muted, quiet guide, or full |
-| Loop | The intro plays once, then the loop section repeats as in the game, with per-pass accuracy. Esc → *Finish & see results* to stop |
+| Loop | With a section, the section repeats, and the music leading into it replays with a 3-2-1 countdown before each pass (silence, for a section at the very start). Otherwise the intro plays once, then the loop section repeats as in the game. Shows per-pass accuracy; Esc → *Finish & see results* to stop |
 | Stop mode | The song stops before each note until you play it |
 | Octave shift / any octave | Fits melodies onto smaller keyboards |
 | Show suggested fingering | Finger numbers on notes and upcoming keys (on by default) |
@@ -65,7 +67,7 @@ Pick a game, preview a track with ▶, then click **Play**.
 
 Switch the dialog to **Score run** to play for a record.
 
-- **Parts:** Right hand, Right hand + chords, Left hand, or Both hands.
+- **Parts:** Right hand, Pulse 1 only, Pulse 2 only, Left hand, or Both hands.
 - **Records:** one best per **song × part × speed × stop mode**.
 - **Score (out of 1,000,000):** 90% comes from timing accuracy (Perfect 100 / Great 70 / Good 40 per note, minus half a note per wrong press) and 10% from max combo.
 - **Grades:** S ≥ 95%, A ≥ 90%, B ≥ 80%, C ≥ 70%, otherwise D. Every note hit with no wrong presses is a ★ full combo.
@@ -77,25 +79,20 @@ The bar above the song list chooses which part, speed and stop mode the list sho
 ### Difficulty
 
 Ratings come from the exact notes a score run uses, at the selected speed.
-- **Cost per press:** every press costs 1, and a chord adds 0.5 per extra key.
-- **Jumps:** moving from that hand's previous press costs 0.6 per octave, up to twice that when there's less than ¼ s to move.
+- **Cost per press:** every press costs 1, and a chord adds 0.5 per extra key. Repeating one of the hand's last two presses (a repeated note, or rocking between two keys) costs 0.65.
+- **Reach:** a hand covers an octave without moving. A press within an octave of the hand's last few presses costs at most a small stretch, so an octave-bouncing bass (thumb and little finger) is cheap.
+- **Jumps:** a press out of reach costs 0.6 per octave moved from the previous press, up to twice that when there's less than ¼ s to move.
 - **Both hands at once:** adds 0.25.
+- **Note variety:** each 4-second window counts in full when it uses 6 or more different notes. Fewer notes count less, down to 55% for a single repeated note. A note and its octave count as one.
 - **Combining:** the cost per second is measured over 4-second windows, blending the busiest stretches (60%) with the average (40%).
 
-Hover a rating to see presses per second, average jump size and chord share. At full speed, a typical song rates about 4 for Right hand, 5.5 for Right hand + chords, 5 for Left hand, and 7 for Both hands.
+Hover a rating to see presses per second, average jump size, chord share and note variety. At full speed, a typical song rates about 6 for Right hand, 4 for Pulse 1 only, 4.5 for Pulse 2 only, 4 for Left hand, and 7 for Both hands.
 
 ### Which hand plays what
 
-NES channels don't map neatly onto hands. Usually the pulses carry melody and harmony and the triangle the bass, but channels swap roles, sometimes within a song. So each note is given to a hand by register (`src/song/hands.ts`):
+The right hand plays both pulses (melody and harmony) and the left hand plays the triangle (bass). Every note of those channels is in the part, chords and all; nothing is picked out automatically. For an easier right hand, **Pulse 1 only** (usually the melody) and **Pulse 2 only** (usually the harmony) play the right hand's notes from one pulse.
 
-- **Windows:** the song is cut into 2-second windows.
-- **Scoring each window:** every combination of hands for the parts playing in that window is scored.
-  - Low parts lean left and high parts lean right.
-  - Crossed hands cost extra.
-  - So do three parts in one hand, two parts more than an octave apart in one hand, and two parts in one hand while the other hand is free.
-- **Smoothing:** the cheapest sequence is found with a charge for each part that changes hands. Each switch is moved to the nearest rest in that part.
-
-**Right hand** (melody) keeps one line from the right hand's parts, normally the highest. It won't jump to an echo channel copying the melody a moment later.
+Some songs swap roles, such as Needle Man's intro, where Pulse 1 plays the bass riff under the triangle's melody. Those songs are listed in `src/song/handOverrides.ts`. Each rule moves one channel to the other hand, optionally for a time range. `npx tsx tools/hands.ts <game> <id>` shows the hands over time.
 
 In practice, the channels that mostly carry your part are the ones turned down by "Your part in the music".
 
@@ -115,7 +112,7 @@ A thumb pass under fingers 2–4 counts as a hand shift, so scales come out with
 | File | Contents | In git |
 |---|---|---|
 | `track-names.json` | Names you give tracks (✎ rename) | Yes, so you can share names |
-| `scores.json` | Your score-run records. Records from the earlier channel charts were copied to the nearest hand part (Pulse 1 → Right, Pulse 1 + 2 → Right + chords, Triangle → Left, All three → Both) and marked `migratedFrom` | No (gitignored) |
+| `scores.json` | Your score-run records. Records from retired parts (the earlier channel charts, and the melody-only Right hand) stay in the file but aren't shown. The old Pulse 1 chart's records count for Pulse 1 only | No (gitignored) |
 
 The dev server writes both files, and the browser keeps a copy, so they survive clearing browser data.
 
@@ -144,7 +141,7 @@ npx tsx tools/discover.ts                  # list discovered tracks for every ga
 npx tsx tools/render.ts mm2 1 out.wav      # print notes and render a track to WAV
 npx tsx tools/difficulty.ts [speed]        # difficulty ratings for every chart of every song
 npx tsx tools/fingering.ts mm2 0 both 40   # suggested fingering for a track and part
-npx tsx tools/hands.ts mm3 1 both          # which hand plays each channel over time (--summary for all songs)
+npx tsx tools/hands.ts mm3 1 both          # which hand plays each channel over time
 npm run probe -- mm3 8000 806c 40          # disassemble a sound driver
 ```
 

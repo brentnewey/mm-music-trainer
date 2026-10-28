@@ -1,12 +1,19 @@
 import type { SongAnalysis } from './analyze';
 import { FRAME_SECONDS } from './analyze';
 import type { TargetNote } from '../game/judge';
-import { assignHands, melodyLine } from './hands';
+import { assignHands } from './hands';
+import { HAND_OVERRIDES } from './handOverrides';
 
-export interface TargetOptions { minFrames: number; speed: number; octaveShift: number }
+export interface TargetOptions {
+  minFrames: number;
+  speed: number;
+  octaveShift: number;
+  /** The track (`trackKey`), for its hand overrides */
+  track: string;
+}
 
 /** What you play: a hand's part of the arrangement */
-export type PartId = 'rh' | 'rhc' | 'lh' | 'both';
+export type PartId = 'right' | 'p1' | 'p2' | 'lh' | 'both';
 
 /**
  * Converts analyzed notes on the given channels into timed targets, each with the
@@ -31,25 +38,22 @@ export function buildTargets(a: SongAnalysis, channels: number[], opts: TargetOp
       ch: n.ch,
     });
   }
-  assignHands(out, opts.speed, 12 * opts.octaveShift);
+  assignHands(out, opts.speed, HAND_OVERRIDES[opts.track]);
   return out;
 }
 
 /**
- * Targets for one hand's part. Hands are decided on the whole arrangement (both
- * pulses and the triangle), so a part can draw on any channel: in Needle Man's
- * intro the left hand plays Pulse 1's bass riff.
- * - `rh`: the right hand's melody (one line, no chords)
- * - `rhc`: everything the right hand plays, chords included
- * - `lh`: everything the left hand plays
- * - `both`: the whole arrangement
+ * Targets for one hand's part: `right` (the pulses), `p1` or `p2` (the right hand's
+ * notes on one pulse, an easier right hand), `lh` (the triangle) or `both`.
+ * Hands come from the channels, with per-song overrides (see hands.ts), so a part
+ * can draw on any channel: in Needle Man's intro the left hand plays Pulse 1's bass riff.
  */
 export function buildPart(a: SongAnalysis, part: PartId, opts: TargetOptions): TargetNote[] {
+  // One pulse alone keeps its unisons with the other, which a full build merges away
+  if (part === 'p1' || part === 'p2') return buildTargets(a, [part === 'p1' ? 0 : 1], opts).filter((n) => n.hand === 'R');
   const all = buildTargets(a, [0, 1, 2], opts);
   if (part === 'both') return all;
-  if (part === 'lh') return all.filter((n) => n.hand === 'L');
-  const right = all.filter((n) => n.hand === 'R');
-  return part === 'rhc' ? right : melodyLine(right, opts.speed, 12 * opts.octaveShift);
+  return all.filter((n) => n.hand === (part === 'lh' ? 'L' : 'R'));
 }
 
 /** Channels carrying mostly this part's notes (muted or quietened in the backing track) */

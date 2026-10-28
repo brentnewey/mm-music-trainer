@@ -1,5 +1,5 @@
 // Dev helper: print the suggested fingering for a track.
-// Usage: npx tsx tools/fingering.ts <game> <soundIdHex> [rh|rhc|lh|both] [count]
+// Usage: npx tsx tools/fingering.ts <game> <soundIdHex> [right|lh|both] [count]
 import fs from 'node:fs';
 import { GAMES } from '../src/games';
 import { analyzeSong } from '../src/song/analyze';
@@ -8,12 +8,12 @@ import { assignFingering } from '../src/song/fingering';
 import { noteName } from '../src/game/highway';
 import { CHARTS, SCORE_RUN_RULES } from '../src/scores';
 
-const [gameId = 'mm2', idHex = '0', chartId = 'rh', count = '48'] = process.argv.slice(2);
+const [gameId = 'mm2', idHex = '0', chartId = 'right', count = '48'] = process.argv.slice(2);
 const game = GAMES.find((g) => g.id === gameId)!;
 const chart = CHARTS.find((c) => c.id === chartId)!;
 const image = new Uint8Array(fs.readFileSync(`roms/nsf/${game.id}.bin`));
 const a = analyzeSong(image, game.driver, parseInt(idHex, 16));
-const notes = buildPart(a, chart.id, { minFrames: SCORE_RUN_RULES.minNoteFrames, speed: 1, octaveShift: 0 });
+const notes = buildPart(a, chart.id, { minFrames: SCORE_RUN_RULES.minNoteFrames, speed: 1, octaveShift: 0, track: `${gameId}:${idHex.padStart(2, '0')}` });
 const t = performance.now();
 assignFingering(notes);
 console.log(`${notes.length} notes fingered in ${(performance.now() - t).toFixed(1)} ms`);

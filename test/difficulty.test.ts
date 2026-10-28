@@ -21,6 +21,20 @@ describe('rateDifficulty', () => {
     expect(leaps.leap).toBeCloseTo(12, 5);
   });
 
+  it('rates a bouncing octave bass below a bass line that moves around', () => {
+    // Guts Man: G2 G2 G3 over and over, thumb and little finger without moving the hand
+    const rocking = rateDifficulty(line(7, 20, (i) => [43, 43, 55][i % 3], 2));
+    const walking = rateDifficulty(line(7, 20, (i) => [43, 50, 55, 47, 41, 53, 45, 57, 40][i % 9], 2));
+    expect(walking.rating).toBeGreaterThan(rocking.rating + 1);
+  });
+
+  it('rises with note variety at the same pace and span', () => {
+    const fewNotes = rateDifficulty(line(5, 20, (i) => [60, 64, 67, 64][i % 4]));
+    const manyNotes = rateDifficulty(line(5, 20, (i) => [60, 62, 64, 65, 67, 66, 63, 61][i % 8]));
+    expect(manyNotes.variety).toBeGreaterThan(fewNotes.variety);
+    expect(manyNotes.rating).toBeGreaterThan(fewNotes.rating);
+  });
+
   it('rises with chords and with a second hand', () => {
     const single = rateDifficulty(line(4, 20, () => 64));
     const chords = rateDifficulty([...line(4, 20, () => 64), ...line(4, 20, () => 67, 1)]);

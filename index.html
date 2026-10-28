@@ -77,10 +77,19 @@
               A record is kept for each part, speed and stop-mode setting; these start from the song list's selection.</p>
           </div>
         </fieldset>
+        <fieldset id="section-picker">
+          <legend>Section</legend>
+          <div id="section-canvas"></div>
+          <div class="section-info">
+            <span id="section-label"></span>
+            <button type="button" class="btn small" id="section-clear">Whole song</button>
+          </div>
+        </fieldset>
         <div class="grid">
           <label>Speed
             <select name="speed">
-              <option value="0.5">50%</option><option value="0.6">60%</option><option value="0.7">70%</option>
+              <option value="0.25" class="practice-only">25%</option><option value="0.3" class="practice-only">30%</option>
+              <option value="0.4" class="practice-only">40%</option><option value="0.5">50%</option><option value="0.6">60%</option><option value="0.7">70%</option>
               <option value="0.8">80%</option><option value="0.9">90%</option><option value="1">100%</option>
             </select>
           </label>
@@ -111,7 +120,7 @@
           </label>
         </div>
         <div class="checks">
-          <label><input type="checkbox" name="loop" /> Loop (keep repeating the song until you choose Finish)</label>
+          <label><input type="checkbox" name="loop" /> Loop (keep repeating the song, or the section, until you choose Finish)</label>
           <label><input type="checkbox" name="waitMode" /> Stop mode (song stops before each note until you play it)</label>
           <label><input type="checkbox" name="octaveForgiving" /> Accept any octave</label>
           <label><input type="checkbox" name="showNoteNames" /> Show note names</label>

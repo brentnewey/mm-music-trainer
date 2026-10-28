@@ -14,14 +14,22 @@ export interface Chart {
 
 /** The parts you can play, in practice and score runs (see buildPart) */
 export const CHARTS: Chart[] = [
-  { id: 'rh', label: 'Right hand', short: 'Right', description: 'melody', color: '#3cbcfc' },
-  { id: 'rhc', label: 'Right hand + chords', short: 'Right + chords', description: 'melody and harmony', color: '#f878f8' },
-  { id: 'lh', label: 'Left hand', short: 'Left', description: 'bass and accompaniment', color: '#fca044' },
+  { id: 'right', label: 'Right hand', short: 'Right', description: 'both pulses', color: '#3cbcfc' },
+  { id: 'p1', label: 'Pulse 1 only', short: 'Pulse 1', description: 'right hand, usually the melody', color: '#f878f8' },
+  { id: 'p2', label: 'Pulse 2 only', short: 'Pulse 2', description: 'right hand, usually the harmony', color: '#b8b8f8' },
+  { id: 'lh', label: 'Left hand', short: 'Left', description: 'triangle bass', color: '#fca044' },
   { id: 'both', label: 'Both hands', short: 'Both', description: 'the whole arrangement', color: '#58f898' },
 ];
 
 /** Charts before parts were chosen by hand, and the hand part each is closest to */
-const CHANNEL_CHARTS: Record<string, PartId> = { p1: 'rh', p12: 'rhc', tri: 'lh', all: 'both' };
+const CHANNEL_CHARTS: Record<string, PartId> = { p12: 'right', tri: 'lh', all: 'both' };
+/**
+ * Retired parts and the part a saved selection moves to. Their records stay in the
+ * file but aren't shown: `rh` was the right hand's melody alone, and `rhc` the
+ * melody with its chords, both picked out automatically. (`p1`, the old Pulse 1
+ * channel chart, is a part again.)
+ */
+const RETIRED_CHARTS: Record<string, PartId> = { rh: 'right', rhc: 'right' };
 
 /** Settings forced during score runs so records stay comparable */
 export const SCORE_RUN_RULES = { minNoteFrames: 4, octaveForgiving: false, loop: false } as const;
@@ -81,8 +89,8 @@ export function recordRun(k: ScoreKey, stats: JudgeStats, summary: Summary): { p
 export interface ScoreView { chart: string; speed: number; stop: boolean }
 
 export function getScoreView(): ScoreView {
-  const v = loadJson<ScoreView>('scoreView', { chart: 'rh', speed: 1, stop: false });
-  return { ...v, chart: CHANNEL_CHARTS[v.chart] ?? v.chart };
+  const v = loadJson<ScoreView>('scoreView', { chart: 'right', speed: 1, stop: false });
+  return { ...v, chart: CHANNEL_CHARTS[v.chart] ?? RETIRED_CHARTS[v.chart] ?? v.chart };
 }
 export const saveScoreView = (v: ScoreView) => saveJson('scoreView', v);
 export const describeView = (v: ScoreView) =>
@@ -96,7 +104,8 @@ export function migrateLegacyBests() {
   const all = getScores();
   for (const [k, v] of entries) {
     const [game, idHex, parts] = k.split(':');
-    const chart = ({ '0': 'rh', '1': 'rh', '01': 'rhc', '2': 'lh' } as Record<string, PartId>)[parts] ?? 'both';
+    const chart = ({ '01': 'right', '2': 'lh', '012': 'both' } as Record<string, PartId>)[parts];
+    if (!chart) continue;
     const key = scoreKey({ game, id: parseInt(idHex, 16), chart, speed: 1, stop: false });
     if (all[key]) continue;
     all[key] = {
