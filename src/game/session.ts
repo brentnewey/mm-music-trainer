@@ -39,6 +39,8 @@ export class Session {
   private raf = 0;
   private unsub: (() => void)[] = [];
   private waitingFor: TargetNote[] = [];
+  /** Stop mode: keys pressed for the current chord and still held down */
+  private chordKeys = new Set<number>();
   private endTime: number;
   private finished = false;
   paused = false;
@@ -134,20 +136,8 @@ export class Session {
     if (this.settings.synthEnabled) this.audio.noteOn(e.midi, e.velocity);
     this.highway.includeKey(e.midi);
     if (this.paused || this.finished) return;
-    if (this.waitingFor.length) {
-      const match = this.waitingFor.find((n) => !n.judgment && (this.settings.octaveForgiving ? (n.midi - e.midi) % 12 === 0 : n.midi === e.midi));
-      if (match) {
-        this.judge.hitWithoutTiming(match);
-        this.highway.keyState.set(e.midi, 'good');
-        this.highway.popup('OK', 'great', match.midi, performance.now() / 1000);
-        if (this.waitingFor.every((n) => n.judgment)) {
-          this.waitingFor = [];
-          this.audio.play();
-        }
-      } else {
-        this.judge.wrongNote();
-        this.highway.keyState.set(e.midi, 'bad');
-      }
+    if (this.settings.waitMode) {
+      this.stopModeNoteOn(e);
       return;
     }
     const r = this.judge.noteOn(e.midi, this.judgeTime(e.time));
@@ -163,7 +153,54 @@ export class Session {
   private handleNoteOff = (e: NoteEvent) => {
     if (this.settings.synthEnabled) this.audio.noteOff(e.midi);
     this.highway.keyState.delete(e.midi);
+    this.chordKeys.delete(e.midi);
   };
+
+  private keyMatches(n: TargetNote, midi: number) {
+    return this.settings.octaveForgiving ? (n.midi - midi) % 12 === 0 : n.midi === midi;
+  }
+
+  /** Stop mode: the chord the song is waiting at, or one about to arrive (pressed a little early) */
+  private stopModeChord(): TargetNote[] {
+    if (this.waitingFor.length) return this.waitingFor;
+    const next = this.judge.nextPending();
+    if (!next || next.time - this.judgeTime() > WINDOWS.good) return [];
+    return this.chordAt(next);
+  }
+
+  /**
+   * Stop mode: a chord counts only when all its keys are held down together. Each
+   * correct key lights up as it's pressed, and the chord is scored (and the song
+   * moves on) once the last one goes down while the others are still held.
+   */
+  private stopModeNoteOn(e: NoteEvent) {
+    const chord = this.stopModeChord();
+    if (!chord.some((n) => this.keyMatches(n, e.midi))) {
+      this.judge.wrongNote();
+      this.highway.keyState.set(e.midi, 'bad');
+      return;
+    }
+    this.chordKeys.add(e.midi);
+    this.highway.keyState.set(e.midi, 'good');
+    if (!chord.every((n) => this.isHeld(n))) return;
+    for (const n of chord) this.judge.hitWithoutTiming(n);
+    this.highway.popup('OK', 'great', Math.max(...chord.map((n) => n.midi)), performance.now() / 1000);
+    // Keys still down don't count toward the next chord: a repeated note is pressed again
+    this.chordKeys.clear();
+    if (this.waitingFor.length) {
+      this.waitingFor = [];
+      this.audio.play();
+    }
+  }
+
+  private isHeld(n: TargetNote) {
+    return [...this.chordKeys].some((k) => this.keyMatches(n, k));
+  }
+
+  /** Pending notes starting together with `first` */
+  private chordAt(first: TargetNote) {
+    return this.notes.filter((n) => !n.judgment && Math.abs(n.time - first.time) <= CHORD_EPSILON);
+  }
 
   private loop = () => {
     this.raf = requestAnimationFrame(this.loop);
@@ -185,7 +222,7 @@ export class Session {
       combo: s.combo,
       accuracy: judged ? summarize({ ...s, total: judged }).accuracy : 1,
       progress: Math.max(0, Math.min(1, this.loopSpan ? this.loopProgress(songTime) : (songTime - this.startPos) / (this.endTime - this.startPos))),
-      waiting: this.waitingFor.length ? this.waitingFor.filter((n) => !n.judgment).map((n) => noteName(n.midi)).join(' + ') : null,
+      waiting: this.waitingFor.length ? this.waitingFor.filter((n) => !this.isHeld(n)).map((n) => noteName(n.midi)).join(' + ') : null,
       countdown: this.countdown(songTime),
       pass: this.loopSpan ? this.passAccuracies.length + 1 : null,
       passBanner: this.passBanner && wall < this.passBanner.until ? this.passBanner.text : null,
@@ -214,7 +251,7 @@ export class Session {
     if (this.waitingFor.length) return;
     const next = this.judge.nextPending();
     if (!next || next.time > songTime) return;
-    this.waitingFor = this.notes.filter((n) => !n.judgment && Math.abs(n.time - next.time) <= CHORD_EPSILON);
+    this.waitingFor = this.chordAt(next);
     this.audio.pause();
   }
 
