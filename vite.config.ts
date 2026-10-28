@@ -28,11 +28,11 @@ function localProteus(): Plugin {
 }
 
 /**
- * Persists app data (track names, score records) to JSON files in the project,
+ * Persists app data (track names, track edits, score records) to JSON files in the project,
  * so it survives clearing browser data or changing ports.
  */
 function projectDataFiles(): Plugin {
-  const allowed = new Set(['track-names', 'scores']);
+  const allowed = new Set(['track-names', 'track-edits', 'scores']);
   return {
     name: 'project-data-files',
     apply: 'serve',

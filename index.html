@@ -48,6 +48,7 @@
             <option value="0.8">80%</option><option value="0.9">90%</option><option value="1">100%</option>
           </select>
           <label class="filter-stop"><input type="checkbox" id="filter-stop" /> Stop mode</label>
+          <label class="filter-stop" title="Only the robot masters' stages and the Wily, Cossack, Dr. X and Proto Man stages"><input type="checkbox" id="filter-stages" /> Stages only</label>
           <span id="filter-summary" class="filter-summary"></span>
         </div>
         <div id="track-status" class="track-status"></div>
@@ -71,6 +72,8 @@
           <legend>Your part</legend>
           <div id="part-options" class="part-options"></div>
           <p id="range-warning" class="hint"></p>
+          <p class="hint edit-parts-row"><span id="edit-parts-info"></span>
+            <button type="button" class="btn small" id="edit-parts">Edit parts…</button></p>
           <div id="score-info">
             <div id="score-best" class="score-best"></div>
             <p class="hint">Score runs always use Normal notes, exact octaves and no loop, so records stay comparable.
@@ -132,6 +135,48 @@
           <button value="play" class="btn primary" id="play-btn">Play ▶</button>
         </div>
       </form>
+    </dialog>
+
+    <dialog id="edit-dialog" class="panel dialog wide">
+      <h2 id="edit-title"></h2>
+      <p class="hint">Drag across the roll to select a stretch of the song, or click a note. Choose which channels and sounds the selection
+        covers, then send it to a hand or remove it. Removed notes still play in the music; they're just not yours to play.</p>
+      <div class="edit-toolbar">
+        <button type="button" class="btn small" id="edit-listen">▶ Listen</button>
+        <button type="button" class="btn small primary" id="edit-practice" title="Close the editor and practise the selected stretch, or from the selected note to the end, with the song dialog's part and settings">Practise from here ▶</button>
+        <label class="hint"><input type="checkbox" id="edit-solo" /> Only the selected channels</label>
+        <span class="spacer"></span>
+        <span class="hint">Zoom</span>
+        <button type="button" class="btn small" id="edit-zoom-out">−</button>
+        <button type="button" class="btn small" id="edit-zoom-in">+</button>
+        <button type="button" class="btn small" id="edit-fit">Fit</button>
+      </div>
+      <div id="edit-roll" class="edit-roll"><div class="edit-roll-inner"><canvas></canvas></div></div>
+      <fieldset>
+        <legend>Selection</legend>
+        <div class="edit-sel"><span id="edit-sel-label"></span> <button type="button" class="btn small" id="edit-whole">Whole song</button></div>
+        <div id="edit-filter" class="edit-filter"></div>
+        <div id="edit-actions" class="edit-actions">
+          <span class="hint">Send to</span>
+          <button type="button" class="btn small" data-role="R" style="color:#3cbcfc">Right hand</button>
+          <button type="button" class="btn small" data-role="L" style="color:#fca044">Left hand</button>
+          <button type="button" class="btn small" data-role="off">Remove</button>
+          <button type="button" class="btn small" data-role="default" title="Pulses to the right hand, triangle to the left">Usual hand</button>
+          <span class="hint">or</span>
+          <button type="button" class="btn small" data-role="join" title="Fold each note on the selected channels that repeats a note of the same pitch on another channel (an echo, still sounding or just ended) into that note, held until the echo ends. Works on a stretch, the whole song or one note">Join echoes</button>
+          <button type="button" class="btn small" data-role="merge" title="Join each channel's selected notes (a vibrato or trill written as many short notes) into one held note at the pitch held longest. Select a stretch of the song first">Merge into one note</button>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Edits to this song</legend>
+        <p id="edit-none" class="hint">None yet: the pulses are the right hand and the triangle the left.</p>
+        <ol id="edit-rules" class="edit-rules"></ol>
+        <button type="button" class="btn small" id="edit-clear">Clear all</button>
+      </fieldset>
+      <div class="actions edit-footer">
+        <span id="edit-summary" class="hint"></span>
+        <button type="button" class="btn primary" id="edit-done">Done</button>
+      </div>
     </dialog>
 
     <!-- Gameplay -->

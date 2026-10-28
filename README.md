@@ -9,7 +9,8 @@ The music isn't recorded or transcribed. It's generated live by the games' own s
 ## Features
 
 - **Every track, found automatically:** 16–34 per game, including stage themes, bosses, jingles and endings.
-- **Play by hand:** right hand (both pulses, or one pulse alone as an easier version), left hand (the triangle), or both. Songs where channels swap roles get per-song exceptions, such as Needle Man's intro, where Pulse 1 plays the bass riff.
+- **Play by hand:** right hand (both pulses, or one pulse alone as an easier version), left hand (the triangle), or both.
+- **Track editor:** reshape a song's parts into something closer to a piano arrangement. Move a stretch, a sound or a single note to the other hand, or remove percussion and accompaniment you don't want to play.
 - **Practice tools:**
   - speed 25–100% without changing pitch;
   - **stop mode**, where the song waits at each note until you play it;
@@ -58,7 +59,7 @@ Pick a game, preview a track with ▶, then click **Play**.
 | Notes | Every note / Normal / Simplified / Long notes only (drops grace notes and arpeggio blips) |
 | Your part in the music | Muted, quiet guide, or full |
 | Loop | With a section, the section repeats, and the music leading into it replays with a 3-2-1 countdown before each pass (silence, for a section at the very start). Otherwise the intro plays once, then the loop section repeats as in the game. Shows per-pass accuracy; Esc → *Finish & see results* to stop |
-| Stop mode | The song stops before each note until you play it |
+| Stop mode | The song stops before each note until you play it. A chord counts only when all its keys are held down together; a key let go early has to be pressed again |
 | Octave shift / any octave | Fits melodies onto smaller keyboards |
 | Show suggested fingering | Finger numbers on notes and upcoming keys (on by default) |
 | Latency offset | Set from the results screen's timing calibration |
@@ -74,7 +75,7 @@ Switch the dialog to **Score run** to play for a record.
 - **Fixed rules:** Normal notes, exact octaves and no loop, so records stay comparable.
 - **Stop mode:** timing isn't judged, so the score reflects correct notes and wrong presses.
 
-The bar above the song list chooses which part, speed and stop mode the list shows records and difficulty for, and score runs start from that selection. Tracks without notes for the selected part are hidden.
+The bar above the song list chooses which part, speed and stop mode the list shows records and difficulty for, and score runs start from that selection. Tracks without notes for the selected part are hidden. **Stages only** hides jingles and other music, leaving the robot masters' stages and the Wily, Cossack, Dr. X and Proto Man stages (listed in `src/stages.ts`).
 
 ### Difficulty
 
@@ -92,7 +93,21 @@ Hover a rating to see presses per second, average jump size, chord share and not
 
 The right hand plays both pulses (melody and harmony) and the left hand plays the triangle (bass). Every note of those channels is in the part, chords and all; nothing is picked out automatically. For an easier right hand, **Pulse 1 only** (usually the melody) and **Pulse 2 only** (usually the harmony) play the right hand's notes from one pulse.
 
-Some songs swap roles, such as Needle Man's intro, where Pulse 1 plays the bass riff under the triangle's melody. Those songs are listed in `src/song/handOverrides.ts`. Each rule moves one channel to the other hand, optionally for a time range. `npx tsx tools/hands.ts <game> <id>` shows the hands over time.
+### Editing a song's parts
+
+The channels don't always split the way a pianist would. Needle Man's intro has the bass riff on Pulse 1 under the triangle's melody, and many songs put drum hits or echo effects on a pulse or the triangle. **Edit parts…** in the song dialog opens the track editor:
+
+- **The roll** shows Pulse 1, Pulse 2 and the triangle in their own lanes, with each note coloured by hand: blue right, orange left, grey outline removed. Zoom with − / + / Fit and scroll sideways.
+- **Selecting:** drag across the roll for a stretch of the song, or click one note. With nothing selected, an edit covers the whole song.
+- **Channels and sounds:** tick the channels the selection covers. A channel that uses more than one sound (duty cycle and volume, which the drivers set per instrument) shows a chip for each, lettered by how often it's used. Hover a chip to light up its notes; click it to leave that sound out.
+- **Send to** the right hand, the left hand, **Remove** (in no part, though it still plays in the music) or **Usual hand**.
+- **Join echoes** handles a channel that repeats another a moment later, like Flash Man's Pulse 2, which echoes Pulse 1 a fifth of a second behind. Each echo (same pitch, on another channel, starting while the original sounds or up to 0.25 s after it ends) is folded into the original, which is held until the echo ends. Select the echoing channel; it works on a stretch, the whole song or one note. Repeated notes on one channel are never joined.
+- **Merge into one note** joins each channel's selected notes into one held note, from the first note's start to the last one's end, at the pitch held longest. Use it for a vibrato or trill the driver writes as many short notes. It needs a stretch of the song selected, and merging happens before the Notes filter, so a vibrato of short notes isn't dropped as a set of blips.
+- **Practise from here ▶** closes the editor and practises the selected stretch (or from the selected note to the end) with the song dialog's part and settings, as if you'd picked that section on the timeline.
+- **▶ Listen** plays the selection, optionally with only the selected channels, to help tell sounds apart.
+- **Edits** are listed in order, and a later one wins where they overlap. Hover one to see its notes; ✕ undoes it.
+
+Edits are saved per song in `track-edits.json` and apply to every part, difficulty rating and fingering. Records set before an edit were played on the old parts. `npx tsx tools/hands.ts <game> <id>` shows the hands over time.
 
 In practice, the channels that mostly carry your part are the ones turned down by "Your part in the music".
 
@@ -112,9 +127,10 @@ A thumb pass under fingers 2–4 counts as a hand shift, so scales come out with
 | File | Contents | In git |
 |---|---|---|
 | `track-names.json` | Names you give tracks (✎ rename) | Yes, so you can share names |
+| `track-edits.json` | Each song's edits from the track editor | Yes, so you can share arrangements |
 | `scores.json` | Your score-run records. Records from retired parts (the earlier channel charts, and the melody-only Right hand) stay in the file but aren't shown. The old Pulse 1 chart's records count for Pulse 1 only | No (gitignored) |
 
-The dev server writes both files, and the browser keeps a copy, so they survive clearing browser data.
+The dev server writes these files, and the browser keeps a copy, so they survive clearing browser data.
 
 ## How it works
 

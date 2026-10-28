@@ -12,6 +12,8 @@ export interface Note {
   end: number;
   /** peak volume 0-15 */
   vel: number;
+  /** Pulse duty cycle at the note's start (0-3; 0 for the triangle). With `vel` it tells a channel's sounds apart */
+  duty: number;
 }
 
 export interface SongAnalysis {
@@ -189,7 +191,7 @@ function splitByPitch(snaps: FrameSnapshot[], ch: number, start: number, end: nu
     }
     let midi = pitches[from], best = 0;
     for (const [p, n] of counts) if (n > best) { best = n; midi = p; }
-    out.push({ ch, midi, start: start + from, end: start + to, vel });
+    out.push({ ch, midi, start: start + from, end: start + to, vel, duty: snaps[start + from][ch].duty });
   };
   for (let i = 1; i < pitches.length; i++) {
     if (Math.abs(pitches[i] - current) < 1) continue;

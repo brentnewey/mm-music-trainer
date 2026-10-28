@@ -2,6 +2,7 @@
 // Usage: npx tsx tools/fingering.ts <game> <soundIdHex> [right|lh|both] [count]
 import fs from 'node:fs';
 import { GAMES } from '../src/games';
+import { editsFor } from './edits';
 import { analyzeSong } from '../src/song/analyze';
 import { buildPart } from '../src/song/targets';
 import { assignFingering } from '../src/song/fingering';
@@ -13,7 +14,7 @@ const game = GAMES.find((g) => g.id === gameId)!;
 const chart = CHARTS.find((c) => c.id === chartId)!;
 const image = new Uint8Array(fs.readFileSync(`roms/nsf/${game.id}.bin`));
 const a = analyzeSong(image, game.driver, parseInt(idHex, 16));
-const notes = buildPart(a, chart.id, { minFrames: SCORE_RUN_RULES.minNoteFrames, speed: 1, octaveShift: 0, track: `${gameId}:${idHex.padStart(2, '0')}` });
+const notes = buildPart(a, chart.id, { minFrames: SCORE_RUN_RULES.minNoteFrames, speed: 1, octaveShift: 0, edits: editsFor(gameId, parseInt(idHex, 16)) });
 const t = performance.now();
 assignFingering(notes);
 console.log(`${notes.length} notes fingered in ${(performance.now() - t).toFixed(1)} ms`);

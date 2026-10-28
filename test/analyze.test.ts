@@ -62,7 +62,7 @@ describe.skipIf(!hasRoms)('real drivers', () => {
   it('builds playable targets', () => {
     const g = GAMES.find((x) => x.id === 'mm2')!;
     const a = analyzeSong(load('mm2'), g.driver, 1);
-    const t = buildTargets(a, [0], { minFrames: 4, speed: 0.5, octaveShift: 0, track: '' });
+    const t = buildTargets(a, [0], { minFrames: 4, speed: 0.5, octaveShift: 0 });
     expect(t.length).toBeGreaterThan(50);
     expect(t.every((n, i) => i === 0 || n.time >= t[i - 1].time)).toBe(true);
     expect(t[t.length - 1].time).toBeLessThan((a.endFrame / 60.0988) * 2 + 0.01);

@@ -1,15 +1,14 @@
-import type { SongAnalysis } from './analyze';
+import type { Note, SongAnalysis } from './analyze';
 import { FRAME_SECONDS } from './analyze';
 import type { TargetNote } from '../game/judge';
-import { assignHands } from './hands';
-import { HAND_OVERRIDES } from './handOverrides';
+import { applyMerges, roleOf, type EditRule, type Hand } from './hands';
 
 export interface TargetOptions {
   minFrames: number;
   speed: number;
   octaveShift: number;
-  /** The track (`trackKey`), for its hand overrides */
-  track: string;
+  /** The song's edits from the track editor (which hand plays what, and what's removed) */
+  edits?: EditRule[];
 }
 
 /** What you play: a hand's part of the arrangement */
@@ -17,35 +16,39 @@ export type PartId = 'right' | 'p1' | 'p2' | 'lh' | 'both';
 
 /**
  * Converts analyzed notes on the given channels into timed targets, each with the
- * hand expected to play it. Unisons across channels (same pitch, starting within
- * 2 frames) are merged.
+ * hand expected to play it. The song's edits merge notes and remove some, and
+ * unisons across channels (same pitch, starting within 2 frames) are merged.
  */
 export function buildTargets(a: SongAnalysis, channels: number[], opts: TargetOptions): TargetNote[] {
   const scale = FRAME_SECONDS / opts.speed;
-  const picked = a.notes
+  // Merge first, so a vibrato of short notes survives the length filter as one note
+  const picked = applyMerges(a.notes, opts.edits)
     .filter((n) => channels.includes(n.ch) && n.end - n.start >= opts.minFrames && n.start < a.endFrame)
-    .sort((x, y) => x.start - y.start || x.ch - y.ch);
+    .map((n) => ({ n, role: roleOf(n, opts.edits) }))
+    .filter((p): p is { n: Note; role: Hand } => p.role !== 'off')
+    .sort((x, y) => x.n.start - y.n.start || x.n.ch - y.n.ch);
   const out: TargetNote[] = [];
   const recent: typeof picked = [];
-  for (const n of picked) {
-    while (recent.length && n.start - recent[0].start > 2) recent.shift();
-    if (recent.some((r) => r.midi === n.midi && r.ch !== n.ch)) continue;
-    recent.push(n);
+  for (const p of picked) {
+    const { n } = p;
+    while (recent.length && n.start - recent[0].n.start > 2) recent.shift();
+    if (recent.some((r) => r.n.midi === n.midi && r.n.ch !== n.ch)) continue;
+    recent.push(p);
     out.push({
       midi: n.midi + 12 * opts.octaveShift,
       time: n.start * scale,
       duration: (Math.min(n.end, a.endFrame) - n.start) * scale,
       ch: n.ch,
+      hand: p.role,
     });
   }
-  assignHands(out, opts.speed, HAND_OVERRIDES[opts.track]);
   return out;
 }
 
 /**
  * Targets for one hand's part: `right` (the pulses), `p1` or `p2` (the right hand's
  * notes on one pulse, an easier right hand), `lh` (the triangle) or `both`.
- * Hands come from the channels, with per-song overrides (see hands.ts), so a part
+ * Hands come from the channels, with the song's edits (see hands.ts), so a part
  * can draw on any channel: in Needle Man's intro the left hand plays Pulse 1's bass riff.
  */
 export function buildPart(a: SongAnalysis, part: PartId, opts: TargetOptions): TargetNote[] {

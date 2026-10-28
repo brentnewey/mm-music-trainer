@@ -1,5 +1,6 @@
 // Persistence: IndexedDB for extracted driver blobs (binary), localStorage for
-// small JSON (settings, track names, scores, discovery cache).
+// small JSON (settings, track names, track edits, scores, discovery cache).
+import type { TrackEdits } from './song/hands';
 
 const DB_NAME = 'mm-music-trainer';
 const STORE = 'blobs';
@@ -97,7 +98,7 @@ export function trackKey(game: string, id: number) {
 
 // Data mirrored to JSON files in the project folder by the dev server, so it
 // survives clearing browser data. Maps file name -> localStorage key.
-const PROJECT_FILES = { 'track-names': 'trackNames', scores: 'scores' } as const;
+const PROJECT_FILES = { 'track-names': 'trackNames', 'track-edits': 'trackEdits', scores: 'scores' } as const;
 type ProjectFile = keyof typeof PROJECT_FILES;
 
 export function saveToProjectFile(name: ProjectFile, data: unknown) {
@@ -129,4 +130,12 @@ export const getTrackNames = () => loadJson<Record<string, string>>('trackNames'
 export function saveTrackNames(n: Record<string, string>) {
   saveJson('trackNames', n);
   saveToProjectFile('track-names', n);
+}
+
+export const getTrackEdits = () => loadJson<TrackEdits>('trackEdits', {});
+
+/** Saves song edits locally and to track-edits.json via the dev server. */
+export function saveTrackEdits(e: TrackEdits) {
+  saveJson('trackEdits', e);
+  saveToProjectFile('track-edits', e);
 }

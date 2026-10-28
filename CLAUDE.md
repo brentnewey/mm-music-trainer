@@ -5,7 +5,7 @@ A browser-based MIDI keyboard trainer for Mega Man 1–6 music. It's TypeScript 
 ## Hard rules
 
 - **Never commit game data.** `roms/` holds extracted ROMs and NSF drivers and is gitignored. The repo must stay free of ROMs, driver blobs, rendered audio and byte arrays copied from them. Tests that need driver data read `roms/nsf/*.bin` and skip when it's missing.
-- **`scores.json` is the user's personal record file** and is gitignored. `track-names.json` is committed. Both hold real user data: don't overwrite or delete them during testing. Back them up first and restore them afterwards.
+- **`scores.json` is the user's personal record file** and is gitignored. `track-names.json` and `track-edits.json` are committed. All three hold real user data: don't overwrite or delete them during testing. Back them up first and restore them afterwards.
 - On this machine the global npm config has `os=linux`, so install with `npm install --os=win32 --cpu=x64`, or Rollup's native module goes missing.
 - When editing files with Python, always pass `encoding='utf-8'`. The Windows default (cp1252) has corrupted `…`, `—` and `✎` in this codebase before.
 
@@ -24,14 +24,14 @@ npx tsx tools/discover.ts | render.ts | difficulty.ts | fingering.ts | probe.ts 
 
 | Path | Role |
 |---|---|
-| `vite.config.ts` | Dev-server plugins: `/proteus.exe` serves the Steam exe (`MMLC_EXE` overrides the path); `/api/data/<track-names\|scores>` GETs/PUTs the JSON data files in the project root |
+| `vite.config.ts` | Dev-server plugins: `/proteus.exe` serves the Steam exe (`MMLC_EXE` overrides the path); `/api/data/<track-names\|track-edits\|scores>` GETs/PUTs the JSON data files in the project root |
 | `src/rom/extract.ts` | Finds ROMs and NSF drivers in `Proteus.exe` `.rdata` by their labels (`MegaMan2`, `NSFMegaMan2`) |
 | `src/emu/cpu6502.ts`, `apu.ts`, `nsf.ts` | 6502 interpreter, register-level 2A03 APU, NSF driver player (`requestSound`, `tick`) |
 | `src/games.ts` | Per-game driver specs (load/play/request addresses, probe IDs) |
 | `src/song/discover.ts` | Probes sound IDs to find music tracks |
 | `src/song/analyze.ts` | Turns APU state into notes, detects loops (exact APU-write hash, or fuzzy pitch matching for MM3–6), renders PCM |
 | `src/song/targets.ts` | Notes → timed targets. `buildPart(a, part, opts)` (part = `right`, `p1`, `p2`, `lh` or `both`) selects a hand's notes (`p1`/`p2`: the right hand's notes on one pulse); `partChannels` picks which channels to quieten |
-| `src/song/hands.ts` | Assigns `TargetNote.hand` by channel (pulses right, triangle left) plus per-song rules from `src/song/handOverrides.ts` (keyed by `trackKey`, passed as `TargetOptions.track`). Check with `tools/hands.ts` |
+| `src/song/hands.ts` | `roleOf`: a note's hand by channel (pulses right, triangle left), changed by the song's `EditRule`s (channel, optional sound = `duty:vel`, time range in 100%-speed seconds, hand `R`/`L`/`off`/`default`/`merge`/`join`; later rules win). `applyMerges` joins `merge` rules' notes into one and folds `join` rules' cross-channel echoes into the note they repeat (both before the length filter), then `buildTargets` drops `off` notes before merging unisons. Edits come from `track-edits.json` via `TargetOptions.edits`; tools read it with `tools/edits.ts`. Check with `tools/hands.ts` |
 | `src/song/difficulty.ts` | 1–10 difficulty rating from targets (`RATING_SCALE` tunes the curve) |
 | `src/song/fingering.ts` | Suggested fingering: per-hand Viterbi over chord fingerings with a Parncutt-style cost model; sets `TargetNote.finger`. `test/fingering.test.ts` pins textbook scale/arpeggio fingerings, so rerun it when tuning costs |
 | `src/worker/` | Heavy emulation runs in a Web Worker; `SongWorkerClient` is the main-thread API |
@@ -42,12 +42,14 @@ npx tsx tools/discover.ts | render.ts | difficulty.ts | fingering.ts | probe.ts 
 | `src/input/midi.ts` | Web MIDI input, plus a computer-keyboard fallback |
 | `src/scores.ts` | Parts (`CHARTS`: `right`, `p1`, `p2`, `lh`, `both`), score records keyed `game:id:part:speed%:stop\|flow`, the library's `ScoreView`, migrations from older chart ids. Retired parts (`rh` melody-only, `rhc`, channel charts) keep their records in the file, hidden |
 | `src/storage.ts` | Settings, localStorage/IndexedDB, `syncProjectFiles` (merges the JSON data files with localStorage) |
+| `src/trackEditor.ts` | Track editor dialog: per-channel piano roll coloured by role, range/note selection, channel and sound filters, listen, edit list. Saves through `EditorContext.save` (main.ts writes `track-edits.json` and clears `partCache`) |
 | `src/sectionPicker.ts` | Song-dialog timeline for choosing a practice section (100%-speed seconds, snapped to note onsets, remembered per song in localStorage `practiceSection`) |
+| `src/stages.ts` | Stage-theme sound IDs per game, for the song list's *Stages only* filter |
 | `src/main.ts` | Boot, library screen (score filter bar, difficulty, records), song dialog (Practice / Score run), results |
 
 ## Domain facts worth knowing
 
-- Channels: 0 = Pulse 1, 1 = Pulse 2, 2 = Triangle, 3 = Noise, 4 = DMC. What you play is chosen by **hand**. Hands follow the channels (pulses right, triangle left) except where `handOverrides.ts` lists a song whose roles swap (Needle Man's intro has the bass on Pulse 1). Automatic register-based hand assignment and melody/chord extraction were tried and dropped as unreliable; the user adds overrides for songs they identify. Fingering, difficulty and note colours all use `TargetNote.hand`.
+- Channels: 0 = Pulse 1, 1 = Pulse 2, 2 = Triangle, 3 = Noise, 4 = DMC. What you play is chosen by **hand**. Hands follow the channels (pulses right, triangle left) except where the user's edits in the track editor say otherwise (Needle Man's intro has the bass on Pulse 1; removed notes are percussion or accompaniment). Automatic register-based hand assignment and melody/chord extraction were tried and dropped as unreliable; the user edits the songs they care about. A channel's "sounds" are notes grouped by duty cycle and peak volume (`Note.duty`, `Note.vel`). Fingering, difficulty and note colours all use `TargetNote.hand`.
 - Driver entry points:
   - MM1: load/play `$9000`, request `$9003` (A = sound ID).
   - MM2–6: `$8000`/`$8003`.

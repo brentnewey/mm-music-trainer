@@ -2,6 +2,7 @@
 // Usage: npx tsx tools/difficulty.ts [speed]
 import fs from 'node:fs';
 import { GAMES } from '../src/games';
+import { editsFor } from './edits';
 import { discoverTracks } from '../src/song/discover';
 import { analyzeSong } from '../src/song/analyze';
 import { buildPart } from '../src/song/targets';
@@ -17,7 +18,7 @@ for (const game of GAMES) {
     if (tr.kind !== 'song') continue;
     const a = analyzeSong(image, game.driver, tr.id);
     const cells = CHARTS.map((c) => {
-      const d = rateDifficulty(buildPart(a, c.id, { minFrames: SCORE_RUN_RULES.minNoteFrames, speed, octaveShift: 0, track: `${game.id}:${tr.id.toString(16).padStart(2, '0')}` }));
+      const d = rateDifficulty(buildPart(a, c.id, { minFrames: SCORE_RUN_RULES.minNoteFrames, speed, octaveShift: 0, edits: editsFor(game.id, tr.id) }));
       if (!d.rating) return `${c.id.padEnd(4)}   -  `;
       (all[c.id] ??= []).push(d.rating);
       return `${c.id.padEnd(4)}${d.rating.toFixed(1).padStart(5)} (${d.nps.toFixed(1)}/${d.peakNps.toFixed(1)}nps ${d.leap.toFixed(1)}st ${Math.round(d.chordShare * 100)}%ch)`;

@@ -1,8 +1,9 @@
 // Dev helper: show which hand plays each channel over time.
 // Usage: npx tsx tools/hands.ts <game> <soundIdHex> [right|lh|both]
-// Hands follow the channels unless the song has rules in src/song/handOverrides.ts.
+// Hands follow the channels unless the song has edits in track-edits.json.
 import fs from 'node:fs';
 import { GAMES } from '../src/games';
+import { editsFor } from './edits';
 import { analyzeSong } from '../src/song/analyze';
 import { buildPart } from '../src/song/targets';
 import { noteName } from '../src/game/highway';
@@ -29,5 +30,5 @@ const [gameId = 'mm3', idHex = '1', chartId = 'both'] = process.argv.slice(2);
 const game = GAMES.find((g) => g.id === gameId)!;
 const image = new Uint8Array(fs.readFileSync(`roms/nsf/${game.id}.bin`));
 const chart = CHARTS.find((c) => c.id === chartId)!;
-const opts = { minFrames: SCORE_RUN_RULES.minNoteFrames, speed: 1, octaveShift: 0, track: `${gameId}:${idHex.padStart(2, '0')}` };
+const opts = { minFrames: SCORE_RUN_RULES.minNoteFrames, speed: 1, octaveShift: 0, edits: editsFor(gameId, parseInt(idHex, 16)) };
 timeline(buildPart(analyzeSong(image, game.driver, parseInt(idHex, 16)), chart.id, opts));

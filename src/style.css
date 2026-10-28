@@ -123,6 +123,30 @@ label:has(> input:disabled), label:has(> select:disabled) { opacity: 0.45; }
 .section-canvas { display: block; width: 100%; height: 72px; border-radius: 4px; touch-action: none; }
 .section-info { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; font-size: 13px; color: var(--muted); }
 .section-info b { color: var(--green); font-weight: normal; }
+.edit-parts-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 0 0; }
+
+/* Track editor */
+.dialog.wide { width: min(1200px, 96vw); }
+.edit-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.edit-toolbar .spacer { flex: 1; }
+.edit-toolbar label { display: flex; align-items: center; gap: 4px; }
+.edit-roll { overflow-x: auto; border: 1px solid var(--panel-edge); border-radius: 4px; margin-bottom: 12px; }
+.edit-roll canvas { position: sticky; left: 0; display: block; touch-action: none; }
+.edit-sel { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--muted); }
+.edit-sel b { color: var(--green); font-weight: normal; }
+.edit-filter { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.edit-filter.disabled { opacity: 0.4; }
+.edit-filter-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; }
+.edit-ch { min-width: 90px; display: flex; align-items: center; gap: 4px; }
+.chip { font: 12px system-ui, sans-serif; background: transparent; color: var(--muted); border: 1px solid var(--panel-edge); border-radius: 10px; padding: 2px 8px; cursor: pointer; }
+.chip.on { color: var(--text); border-color: var(--blue); background: #0070ec40; }
+.edit-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.edit-rules { margin: 0 0 8px; padding-left: 22px; font-size: 13px; max-height: 160px; overflow-y: auto; }
+.edit-rules li { padding: 2px 0; }
+.edit-rules li:hover { color: #fff; }
+.edit-rules li .btn { margin-left: 8px; padding: 2px 5px; }
+.edit-footer { align-items: center; justify-content: space-between; }
+.edit-footer .removed { color: #8890b8; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
 .grid label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
 select, input[type='number'] { background: #000a; color: var(--text); border: 1px solid var(--panel-edge); border-radius: 4px; padding: 6px; font: inherit; }

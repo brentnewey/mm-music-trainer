@@ -5,6 +5,8 @@ import { AudioEngine } from './audio/engine';
 import { NoteInput } from './input/midi';
 import { LEAD_IN, Session, type SessionHud, type SessionResult } from './game/session';
 import { SectionPicker, formatClock, type Section } from './sectionPicker';
+import { openTrackEditor } from './trackEditor';
+import { isStageTrack } from './stages';
 import { noteName } from './game/highway';
 import { buildPart, partChannels, rangeOf, type PartId } from './song/targets';
 import { FRAME_SECONDS, type SongAnalysis } from './song/analyze';
@@ -14,7 +16,7 @@ import type { DiscoveredTrack } from './song/discover';
 import type { TargetNote } from './game/judge';
 import {
   getSettings, saveSettings, loadBlob, saveBlob, loadJson, saveJson, getTrackNames, saveTrackNames,
-  trackKey, syncProjectFiles, type Settings,
+  getTrackEdits, saveTrackEdits, trackKey, syncProjectFiles, type Settings,
 } from './storage';
 import {
   CHARTS, SCORE_RUN_RULES, bestFor, describeView, getScoreView, migrateChannelCharts, migrateLegacyBests, recordRun, saveScoreView,
@@ -166,6 +168,12 @@ function renderScoreFilter() {
   const stop = $<HTMLInputElement>('filter-stop');
   stop.checked = view.stop;
   stop.onchange = () => update({ stop: stop.checked });
+  const stages = $<HTMLInputElement>('filter-stages');
+  stages.checked = stagesOnly();
+  stages.onchange = () => {
+    saveJson('stagesOnly', { on: stages.checked });
+    renderTrackList();
+  };
 }
 
 async function loadTracks(game: GameInfo) {
@@ -191,14 +199,20 @@ async function loadTracks(game: GameInfo) {
   }
 }
 
+/** Whether the song list shows only stage themes */
+const stagesOnly = () => loadJson<{ on: boolean }>('stagesOnly', { on: false }).on;
+
 const partCache = new Map<string, { notes: TargetNote[]; difficulty?: Difficulty }>();
+
+/** A song's edits from the track editor */
+const editsFor = (gameId: string, id: number) => getTrackEdits()[trackKey(gameId, id)] ?? [];
 
 /** A part's notes at a speed, as played in score runs (cached) */
 function partEntry(gameId: string, a: SongAnalysis, chart: Chart, speed: number) {
   const key = `${gameId}:${a.id}:${chart.id}:${speed}`;
   let e = partCache.get(key);
   if (!e) {
-    e = { notes: buildPart(a, chart.id, { minFrames: SCORE_RUN_RULES.minNoteFrames, speed, octaveShift: 0, track: trackKey(gameId, a.id) }) };
+    e = { notes: buildPart(a, chart.id, { minFrames: SCORE_RUN_RULES.minNoteFrames, speed, octaveShift: 0, edits: editsFor(gameId, a.id) }) };
     partCache.set(key, e);
   }
   return e;
@@ -237,7 +251,8 @@ function renderTrackList() {
     const a = analyses.get(key);
     // Record for the selected chart / speed / stop setting
     const rec = bestFor({ game: currentGame.id, id: t.id, ...view });
-    // Hide tracks without notes for the selected part (numbers stay stable)
+    // Hide tracks without notes for the selected part, and non-stage music if asked (numbers stay stable)
+    if (stagesOnly() && !isStageTrack(currentGame.id, t.id)) return;
     if (a && !partTargets(currentGame.id, a, chart, 1).length) return;
     shown++;
     const diff = a ? `<td>${difficultyBadge(chartDifficulty(currentGame.id, a, chart, view.speed))}</td>` : '<td>…</td>';
@@ -343,7 +358,7 @@ async function openSongDialog(t: DiscoveredTrack, title: string) {
   const practiceMemo = loadJson<Record<string, PartId>>('practicePart', {});
   const sectionMemo = loadJson<Record<string, Section>>('practiceSection', {});
   const targetOpts = () => ({
-    minFrames: Number(field('minNoteFrames').value), speed: Number(field('speed').value), octaveShift: Number(field('octaveShift').value), track: songKey,
+    minFrames: Number(field('minNoteFrames').value), speed: Number(field('speed').value), octaveShift: Number(field('octaveShift').value), edits: editsFor(currentGame.id, t.id),
   });
   const notesFor = (c: Chart) => buildPart(a, c.id, targetOpts());
   const available = (c: Chart) => partTargets(currentGame.id, a, c, 1).length > 0;
@@ -407,6 +422,42 @@ async function openSongDialog(t: DiscoveredTrack, title: string) {
     renderBest();
     updateRangeWarning();
     updateSection();
+  };
+
+  // ---- track editor ----
+  const renderEditInfo = () => {
+    const n = editsFor(currentGame.id, t.id).length;
+    $('edit-parts-info').textContent = n
+      ? `This song has ${n} edit${n === 1 ? '' : 's'} to which hand plays what.`
+      : 'Pulses are the right hand and the triangle the left.';
+  };
+  renderEditInfo();
+  $('edit-parts').onclick = async () => {
+    const result = await openTrackEditor({
+      title,
+      analysis: a,
+      edits: editsFor(currentGame.id, t.id),
+      save: (edits) => {
+        const all = getTrackEdits();
+        if (edits.length) all[songKey] = edits; else delete all[songKey];
+        saveTrackEdits(all);
+        for (const k of partCache.keys()) if (k.startsWith(`${currentGame.id}:${t.id}:`)) partCache.delete(k);
+      },
+      audio,
+      render: (gains) => worker.render(currentGame.id, t.id, { sampleRate: SAMPLE_RATE, gains, speed: 1, endFrame: a.endFrame, fadeSeconds: 0 }),
+      sampleRate: SAMPLE_RATE,
+    });
+    // The edits may have emptied the chosen part
+    if (!available(chart)) chart = CHARTS.find(available) ?? chart;
+    renderEditInfo();
+    renderParts();
+    renderTrackList();
+    if (result) {
+      // Practise from the editor's selection with this dialog's settings
+      setMode('practice');
+      picker.setSection(result.practice);
+      if (!$<HTMLButtonElement>('play-btn').disabled) dialog.close('play');
+    }
   };
 
   // ---- practice / score mode ----
@@ -486,7 +537,7 @@ async function startSession(t: DiscoveredTrack, title: string, a: SongAnalysis, 
     ? `${title} · ${part.label} · ${Math.round(settings.speed * 100)}%${settings.waitMode ? ' · STOP' : ''}`
     : `${title} · ${part.label}${settings.speed !== 1 ? ` · ${Math.round(settings.speed * 100)}%` : ''}${section ? ` · ${describeSection(section)}` : ''}`;
   await audio.resume();
-  const opts = { minFrames: settings.minNoteFrames, speed: settings.speed, octaveShift: settings.octaveShift, track: trackKey(currentGame.id, t.id) };
+  const opts = { minFrames: settings.minNoteFrames, speed: settings.speed, octaveShift: settings.octaveShift, edits: editsFor(currentGame.id, t.id) };
   // Quieten the channels that mostly carry your part
   const mine = partChannels(a, part.id, opts);
   const gains = [0, 1, 2, 3, 4].map((ch) => (mine.includes(ch) ? settings.myPartVolume : 1));
