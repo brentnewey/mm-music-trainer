@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { findLoop, findLoopFuzzy, analyzeSong, periodToMidi } from '../src/song/analyze';
+import { findLoop, findLoopFuzzy, analyzeSong, periodToMidi, extractChannelNotes } from '../src/song/analyze';
+import type { FrameSnapshot } from '../src/emu/nsf';
+import { buildPart } from '../src/song/targets';
 import { buildTargets } from '../src/song/targets';
 import { GAMES } from '../src/games';
 
@@ -39,6 +41,29 @@ describe('periodToMidi', () => {
   });
 });
 
+describe('note segmentation', () => {
+  // Pulse 1 frames from [volume, triggered] pairs, all at A4 (period 253); volume 0 is silent
+  const pulse = (frames: [number, boolean?][]): FrameSnapshot[] => frames.map(([volume, triggered = false]) => {
+    const c = { period: 253, volume, audible: volume > 0, triggered, duty: 2 };
+    return [c, c, c, c];
+  });
+  const spans = (snaps: FrameSnapshot[]) => extractChannelNotes(snaps, 0, snaps.length).map((n) => [n.start, n.end]);
+
+  it('holds a note through tremolo: one-frame silences and small swells after the attack', () => {
+    // Top Man at 0:19: struck at 10, then fluttering 3-5 with a silent frame every 4
+    const note = [[10, true], [4], [0], [4], [5], [4], [0], [3], [5], [5], [0], [3]] as [number, boolean?][];
+    expect(spans(pulse([...note, ...note]))).toEqual([[0, 12], [12, 24]]);
+  });
+
+  it('still splits repeated notes at a short rest when they come back as loud', () => {
+    expect(spans(pulse([[8, true], [6], [0], [8], [6], [0], [8], [6]]))).toEqual([[0, 2], [3, 5], [6, 8]]);
+  });
+
+  it('still splits at a re-attack without a trigger', () => {
+    expect(spans(pulse([[10, true], [6], [4], [10], [6], [4]]))).toEqual([[0, 3], [3, 6]]);
+  });
+});
+
 // Integration checks against the real game data, when it has been extracted locally
 const hasRoms = fs.existsSync('roms/nsf/mm2.bin');
 describe.skipIf(!hasRoms)('real drivers', () => {
@@ -57,6 +82,14 @@ describe.skipIf(!hasRoms)('real drivers', () => {
     expect(a.loopStart).toBeGreaterThanOrEqual(0);
     expect(a.endFrame - a.loopStart).toBeGreaterThan(3000);
     expect(a.endFrame - a.loopStart).toBeLessThan(3200);
+  });
+
+  it("keeps Top Man's tremolo melody at 0:19 as whole notes (MM3)", () => {
+    const g = GAMES.find((x) => x.id === 'mm3')!;
+    const a = analyzeSong(load('mm3'), g.driver, 5);
+    const melody = buildPart(a, 'p1', { minFrames: 4, speed: 1, octaveShift: 0 }).filter((n) => n.time > 18.6 && n.time < 20.9);
+    expect(melody.map((n) => n.midi)).toEqual([74, 76, 77, 84, 83, 79, 79]); // D5 E5 F5 C6 B5 G5 G5
+    expect(melody.every((n) => n.duration > 0.3)).toBe(true);
   });
 
   it('builds playable targets', () => {

@@ -5,7 +5,7 @@ import { AudioEngine } from './audio/engine';
 import { NoteInput } from './input/midi';
 import { LEAD_IN, Session, type SessionHud, type SessionResult } from './game/session';
 import { SectionPicker, formatClock, type Section } from './sectionPicker';
-import { openTrackEditor } from './trackEditor';
+import { openTrackEditor, type EditorView } from './trackEditor';
 import { isStageTrack } from './stages';
 import { noteName } from './game/highway';
 import { buildPart, partChannels, rangeOf, type PartId } from './song/targets';
@@ -335,7 +335,11 @@ async function togglePreview(t: DiscoveredTrack) {
 let sectionPicker: SectionPicker | null = null;
 const describeSection = (s: Section) => `${formatClock(s.start)} – ${formatClock(s.end)}`;
 
-async function openSongDialog(t: DiscoveredTrack, title: string) {
+/** Practice started from the track editor: the editor and song dialog to come back to */
+interface EditorDetour { view: EditorView; mode: 'practice' | 'score'; stop: boolean }
+
+/** `detour` reopens the dialog and the track editor as they were, on coming back from practising its selection */
+async function openSongDialog(t: DiscoveredTrack, title: string, detour?: EditorDetour) {
   audio.stop();
   previewing = null;
   const a = await getAnalysis(currentGame.id, t.id);
@@ -351,7 +355,7 @@ async function openSongDialog(t: DiscoveredTrack, title: string) {
     else el.value = String(v);
   }
 
-  let mode = loadJson<{ mode: 'practice' | 'score' }>('mode', { mode: 'practice' }).mode;
+  let mode = detour?.mode ?? loadJson<{ mode: 'practice' | 'score' }>('mode', { mode: 'practice' }).mode;
   const songKey = trackKey(currentGame.id, t.id);
   // Score runs start from the song list's part / speed / stop selection; practice remembers a part per song
   const view = getScoreView();
@@ -432,7 +436,9 @@ async function openSongDialog(t: DiscoveredTrack, title: string) {
       : 'Pulses are the right hand and the triangle the left.';
   };
   renderEditInfo();
-  $('edit-parts').onclick = async () => {
+  // Set when practising from the editor: quitting that practice comes back to it
+  let backToEditor: EditorDetour | null = null;
+  const openEditor = async (view?: EditorView) => {
     const result = await openTrackEditor({
       title,
       analysis: a,
@@ -446,6 +452,7 @@ async function openSongDialog(t: DiscoveredTrack, title: string) {
       audio,
       render: (gains) => worker.render(currentGame.id, t.id, { sampleRate: SAMPLE_RATE, gains, speed: 1, endFrame: a.endFrame, fadeSeconds: 0 }),
       sampleRate: SAMPLE_RATE,
+      view,
     });
     // The edits may have emptied the chosen part
     if (!available(chart)) chart = CHARTS.find(available) ?? chart;
@@ -453,12 +460,17 @@ async function openSongDialog(t: DiscoveredTrack, title: string) {
     renderParts();
     renderTrackList();
     if (result) {
-      // Practise from the editor's selection with this dialog's settings
-      setMode('practice');
+      // Practise from the editor's selection with this dialog's settings, keeping its stop mode;
+      // the pause menu and results then offer Back to editor
+      const stop = field('waitMode').checked;
+      backToEditor = { view: result.view, mode, stop };
+      if (mode !== 'practice') setMode('practice');
+      field('waitMode').checked = stop;
       picker.setSection(result.practice);
       if (!$<HTMLButtonElement>('play-btn').disabled) dialog.close('play');
     }
   };
+  $('edit-parts').onclick = () => openEditor();
 
   // ---- practice / score mode ----
   const locked = ['minNoteFrames', 'octaveForgiving', 'loop'] as const;
@@ -466,6 +478,7 @@ async function openSongDialog(t: DiscoveredTrack, title: string) {
     mode = m;
     for (const b of document.querySelectorAll<HTMLButtonElement>('#mode-switch [data-mode]')) b.classList.toggle('active', b.dataset.mode === m);
     $('score-info').hidden = m !== 'score';
+    $('play-btn').textContent = m === 'score' ? 'Start score run ▶' : 'Practise ▶';
     // Sections and the slowest speeds are for practice only
     $('section-picker').hidden = m === 'score';
     for (const o of form.querySelectorAll<HTMLOptionElement>('.practice-only')) { o.disabled = m === 'score'; o.hidden = m === 'score'; }
@@ -485,6 +498,11 @@ async function openSongDialog(t: DiscoveredTrack, title: string) {
     b.onclick = () => setMode(b.dataset.mode as typeof mode);
   }
   setMode(mode);
+  if (detour) {
+    field('waitMode').checked = detour.stop;
+    if (mode === 'score') view.stop = detour.stop;
+    renderBest();
+  }
   field('minNoteFrames').onchange = renderParts;
   field('octaveShift').onchange = renderParts;
   const onRecordSetting = () => {
@@ -502,8 +520,11 @@ async function openSongDialog(t: DiscoveredTrack, title: string) {
       if (!el || (mode === 'score' && [...locked, 'speed', 'waitMode'].includes(k))) continue;
       (next as unknown as Record<string, number | boolean>)[k] = el.type === 'checkbox' ? el.checked : Number(el.value);
     }
-    saveSettings(next);
-    saveJson('mode', { mode });
+    // Practising the editor's selection is a detour: it leaves the dialog's mode, stop
+    // mode and practice section as they were for the next time you play the song
+    const fromEditor = backToEditor;
+    saveSettings(fromEditor ? { ...next, waitMode: settings.waitMode } : next);
+    if (!fromEditor) saveJson('mode', { mode });
     if (mode === 'score') {
       const key = currentScoreKey();
       saveScoreView({ chart: chart.id, speed: key.speed, stop: key.stop });
@@ -511,13 +532,16 @@ async function openSongDialog(t: DiscoveredTrack, title: string) {
     } else {
       practiceMemo[songKey] = chart.id;
       saveJson('practicePart', practiceMemo);
-      if (picker.section) sectionMemo[songKey] = picker.section; else delete sectionMemo[songKey];
-      saveJson('practiceSection', sectionMemo);
-      startSession(t, title, a, chart, next, null, picker.section);
+      if (!fromEditor) {
+        if (picker.section) sectionMemo[songKey] = picker.section; else delete sectionMemo[songKey];
+        saveJson('practiceSection', sectionMemo);
+      }
+      startSession(t, title, a, chart, next, null, picker.section, fromEditor && (() => openSongDialog(t, title, fromEditor)));
     }
   };
   dialog.returnValue = '';
   dialog.showModal();
+  if (detour) openEditor(detour.view);
 }
 
 // ---------- gameplay ----------
@@ -527,8 +551,12 @@ let session: Session | null = null;
 /** A score run's chart and record key; null for practice */
 type ScoreRun = { chart: Chart; key: ScoreKey } | null;
 
-/** `section` (practice only) is in song seconds at 100% speed */
-async function startSession(t: DiscoveredTrack, title: string, a: SongAnalysis, part: Chart, settings: Settings, scoreRun: ScoreRun, section: Section | null) {
+/**
+ * `section` (practice only) is in song seconds at 100% speed. `toEditor` reopens the
+ * track editor, for the pause menu's and results' Back to editor; only practice
+ * started from the editor has it
+ */
+async function startSession(t: DiscoveredTrack, title: string, a: SongAnalysis, part: Chart, settings: Settings, scoreRun: ScoreRun, section: Section | null, toEditor: (() => void) | null = null) {
   showScreen('play-screen');
   $('loading').hidden = false;
   $('results-overlay').hidden = true;
@@ -573,13 +601,14 @@ async function startSession(t: DiscoveredTrack, title: string, a: SongAnalysis, 
     notes = notes.map((n) => ({ ...n, time: n.time + pad }))
       .filter((n) => n.time >= range.start - 1e-3 && n.time < range.end - 1e-3);
   }
-  const restart = () => { session?.destroy(); startSession(t, title, a, part, settings, scoreRun, section); };
+  const restart = () => { session?.destroy(); startSession(t, title, a, part, settings, scoreRun, section, toEditor); };
   const quit = () => { session?.destroy(); session = null; document.onkeydown = null; showLibrary(); };
 
   session?.destroy();
   session = new Session($<HTMLCanvasElement>('highway'), audio, input, notes, settings, hud, (r) => showResults(r, settings, scoreRun), loopSpan, range);
   session.start();
 
+  for (const b of document.querySelectorAll<HTMLButtonElement>('#play-screen [data-action=editor]')) b.hidden = !toEditor;
   for (const btn of document.querySelectorAll<HTMLButtonElement>('#play-screen [data-action]')) {
     btn.onclick = () => {
       const act = btn.dataset.action;
@@ -587,6 +616,7 @@ async function startSession(t: DiscoveredTrack, title: string, a: SongAnalysis, 
       if (act === 'finish') { $('pause-overlay').hidden = true; session?.finishNow(); }
       if (act === 'restart') restart();
       if (act === 'quit') quit();
+      if (act === 'editor') { quit(); toEditor?.(); }
     };
   }
   document.onkeydown = (e) => {

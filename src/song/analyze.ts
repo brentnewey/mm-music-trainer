@@ -154,22 +154,46 @@ export function periodToMidi(ch: number, period: number): number {
 /** Minimum frames a changed pitch must persist before it counts as a new note (filters vibrato / slides) */
 const PITCH_SETTLE_FRAMES = 3;
 
+/** A silence this short inside a note, coming back quieter at the same pitch, is tremolo, not a new note */
+const TREMOLO_GAP_FRAMES = 1;
+
 export function extractChannelNotes(snaps: FrameSnapshot[], ch: number, endFrame: number): Note[] {
   const notes: Note[] = [];
   // Segment on articulation: silence, $4003 trigger, or a volume re-attack
   let segStart = -1;
   let prevVol = 0;
+  /** Loudest volume so far in the segment, and whether it has carried on through a tremolo gap */
+  let peak = 0;
+  let tremolo = false;
   const closeSegment = (end: number) => {
     if (segStart >= 0 && end > segStart) splitByPitch(snaps, ch, segStart, end, notes);
     segStart = -1;
   };
+  const audibleAt = (f: number) => snaps[f][ch].audible && snaps[f][ch].volume > 0;
+  const pitchAt = (f: number) => Math.round(periodToMidi(ch, snaps[f][ch].period));
+  /** Tremolo (Top Man at 0:19 flutters each note's volume through a silent frame): the note carries on after a gap */
+  const tremoloResumes = (f: number) => {
+    if (segStart < 0) return false;
+    for (let g = 1; g <= TREMOLO_GAP_FRAMES && f + g < endFrame; g++) {
+      if (!audibleAt(f + g)) continue;
+      const c = snaps[f + g][ch];
+      return !c.triggered && c.volume < peak && pitchAt(f + g) === pitchAt(f - 1);
+    }
+    return false;
+  };
   for (let f = 0; f < endFrame; f++) {
     const c = snaps[f][ch];
-    const audible = c.audible && c.volume > 0;
-    if (!audible) { closeSegment(f); prevVol = 0; continue; }
-    const attack = ch !== 2 && c.volume >= prevVol + 2;
-    if (segStart < 0) segStart = f;
-    else if (c.triggered || attack) { closeSegment(f); segStart = f; }
+    if (!audibleAt(f)) {
+      if (tremoloResumes(f)) { tremolo = true; continue; }
+      closeSegment(f); prevVol = 0; continue;
+    }
+    // In a tremolo, a re-attack climbs back to near the note's peak; smaller swells are the tremolo
+    const attack = ch !== 2 && c.volume >= prevVol + 2 && (!tremolo || c.volume >= peak - 2);
+    if (segStart < 0 || c.triggered || attack) {
+      closeSegment(f);
+      segStart = f; peak = 0; tremolo = false;
+    }
+    peak = Math.max(peak, c.volume);
     prevVol = c.volume;
   }
   closeSegment(endFrame);

@@ -55,12 +55,13 @@ export const ECHO_GAP_FRAMES = 15;
 
 /**
  * Folds the echoes the `join` edits cover into held notes, since a keyboard can only
- * reproduce an echo by holding the key. Works one pitch at a time. The channel with
- * the longest note in a held note leads it; a note of that pitch on another channel
- * is an echo if it starts while the lead's note sounds, or up to ECHO_GAP_FRAMES
- * after it ends and is no longer than it (Flash Man's Pulse 2 repeats Pulse 1 a fifth
- * of a second later). Echoes are held until they end. The lead's own repeated notes,
- * and notes too long or late to be echoes, stay separate presses.
+ * reproduce an echo by holding the key. Works one pitch at a time. The note that
+ * strikes the key leads; a note of that pitch on another channel is an echo if it
+ * starts while the lead sounds, or up to ECHO_GAP_FRAMES after it ends and is no
+ * longer than it (Flash Man's Pulse 2 repeats Pulse 1 a fifth of a second later).
+ * Echoes are held until they end, but even a longer echo doesn't take the lead, so
+ * the lead channel striking the key again is a new press (Wood Man at 0:30). The
+ * lead's own repeated notes, and notes too long or late to be echoes, stay separate presses.
  */
 function joinEchoes(notes: Note[], rules: EditRule[]): Note[] {
   const out: Note[] = [];
@@ -80,7 +81,6 @@ function joinEchoes(notes: Note[], rules: EditRule[]): Note[] {
       const echo = held && n.ch !== lead.ch && (n.start < lead.end || (n.start - lead.end <= ECHO_GAP_FRAMES && len <= lead.len));
       if (echo && rules.some((r) => ruleCovers(r, n))) {
         held!.end = Math.max(held!.end, n.end);
-        if (len > lead.len) lead = { ch: n.ch, len, end: n.end };
         continue;
       }
       // An echo on a channel the edits don't cover is left as it is

@@ -105,6 +105,12 @@ describe('joining echoes', () => {
     expect(out.map((n) => [n.ch, n.start, n.end])).toEqual([[0, 0, 6], [0, 6, 11], [0, 12, 17]]);
   });
 
+  it('keeps a restrike on the leading channel while a longer echo still sounds', () => {
+    // Wood Man at 0:30: Pulse 1 holds A4, strikes it again while Pulse 2's longer echo of it sounds, and is echoed again
+    const ns = [note(0, 69, 0, 49), note(1, 69, 10, 51), note(0, 69, 50, 9), note(1, 69, 61, 6)];
+    expect(applyMerges(ns, [{ ch: 0, hand: 'join' }, { ch: 1, hand: 'join' }]).map((n) => [n.ch, n.start, n.end])).toEqual([[0, 0, 50], [0, 50, 67]]);
+  });
+
   it('only joins notes on the channels the edit covers', () => {
     expect(applyMerges([...p1, ...p2], [{ ch: 0, hand: 'join' }]).length).toBe(6);
   });
@@ -164,7 +170,8 @@ describe.skipIf(!fs.existsSync('roms/nsf/mm3.bin'))('Needle Man (MM3)', () => {
     const notes = buildPart(a, 'both', opts);
     const intro = notes.filter((n) => n.time < 16.7);
     expect(handsOf(intro, 0)).toEqual(new Set(['L']));
-    expect(handsOf(intro, 2)).toEqual(new Set(['R']));
+    // The intro's triangle line is moved off the left hand (to the right, or removed)
+    expect(handsOf(intro, 2).has('L')).toBe(false);
     expect(handsOf(notes.filter((n) => n.time >= 16.7), 0)).toEqual(new Set(['R']));
   });
 

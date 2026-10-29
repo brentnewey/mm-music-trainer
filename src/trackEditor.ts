@@ -20,6 +20,21 @@ export interface EditorContext {
   /** Renders the song at 100% speed with per-channel gains [p1, p2, tri, noise, dmc] */
   render(gains: number[]): Promise<Float32Array>;
   sampleRate: number;
+  /** Where to pick up, when coming back from practising a selection */
+  view?: EditorView;
+}
+
+/**
+ * The editor's selection, sound filters and scroll, to reopen it as it was. Without
+ * the zoom and scroll it opens fitted to the song, with the selection in view
+ */
+export interface EditorView {
+  range: { start: number; end: number } | null;
+  /** The picked note's channel and start frame */
+  picked: { ch: number; start: number } | null;
+  filter?: string[][];
+  pps?: number;
+  scroll?: number;
 }
 
 interface EdNote { n: Note; t: number; d: number; sound: string; role: Role }
@@ -43,9 +58,14 @@ const SCORE_MIN_FRAMES = 4;
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const r3 = (t: number) => Math.round(t * 1000) / 1000;
+/** Whether a note is long enough to show in play (score runs leave out shorter ones) */
+const playable = (e: EdNote) => e.n.end - e.n.start >= SCORE_MIN_FRAMES;
 
-/** What to do after the editor closes: practise a stretch of the song (100%-speed seconds), or nothing */
-export type EditorResult = { practice: { start: number; end: number } } | null;
+/**
+ * What to do after the editor closes: practise a stretch of the song (100%-speed
+ * seconds) and then come back to `view`, or nothing
+ */
+export type EditorResult = { practice: { start: number; end: number }; view: EditorView } | null;
 
 export function openTrackEditor(ctx: EditorContext): Promise<EditorResult> {
   return new Promise((resolve) => new TrackEditor(ctx, resolve));
@@ -111,7 +131,14 @@ class TrackEditor {
     $('edit-practice').onclick = () => {
       // The selected stretch, or from the picked note (or the start) to the end
       const start = this.range?.start ?? this.picked?.t ?? 0;
-      this.result = { practice: { start, end: this.range?.end ?? this.duration } };
+      const view: EditorView = {
+        range: this.range,
+        picked: this.picked && { ch: this.picked.n.ch, start: this.picked.n.start },
+        filter: this.filter.map((f) => [...f]),
+        pps: this.pps,
+        scroll: this.roll.scrollLeft,
+      };
+      this.result = { practice: { start, end: this.range?.end ?? this.duration }, view };
       this.dialog.close();
     };
     this.dialog.onclose = () => {
@@ -121,8 +148,16 @@ class TrackEditor {
     };
 
     this.dialog.showModal();
-    this.pps = this.fitPps();
+    const v = ctx.view;
+    this.pps = Math.max(this.fitPps(), v?.pps ?? 0);
+    if (v) {
+      this.filter = this.sounds.map((ss, ch) => new Set(ss.map((s) => s.key).filter((k) => v.filter?.[ch]?.includes(k) ?? true)));
+      this.range = v.range;
+      const p = v.picked;
+      this.picked = p && (this.notes.find((e) => e.n.ch === p.ch && e.n.start === p.start) ?? null);
+    }
     this.layout();
+    if (v) this.roll.scrollLeft = v.scroll ?? (v.range ? v.range.start * this.pps - 40 : 0);
     this.renderPanel();
   }
 
@@ -292,7 +327,7 @@ class TrackEditor {
 
     // What score runs will play
     const counts: Record<Role, number> = { R: 0, L: 0, off: 0 };
-    for (const e of this.notes) if (e.n.end - e.n.start >= SCORE_MIN_FRAMES) counts[e.role]++;
+    for (const e of this.notes) if (playable(e)) counts[e.role]++;
     $('edit-summary').innerHTML = `<span style="color:${ROLE_COLORS.R}">■</span> Right hand ${counts.R} · <span style="color:${ROLE_COLORS.L}">■</span> Left hand ${counts.L} · <span class="removed">□</span> Removed ${counts.off} <small>(notes in a score run)</small>`;
   }
 
@@ -356,12 +391,17 @@ class TrackEditor {
     const t = this.timeAt(clientX);
     const y = clientY - r.top;
     const slack = 3 / this.pps;
+    // Of the notes under the pointer, a note you play beats a sliver too short to show
+    // in play (a drum hit's pitch sweep is several notes), then the nearest one wins
     let best: EdNote | null = null;
+    let bestScore = Infinity;
     for (const e of this.notes) {
       if (t < e.t - slack || t > e.t + Math.max(e.d, 2 / this.pps) + slack) continue;
       const l = this.lanes[e.n.ch];
       const ny = l.y(e.n.midi);
-      if (y >= ny - 3 && y <= ny + l.h + 3) best = e;
+      if (y < ny - 3 || y > ny + l.h + 3) continue;
+      const score = (playable(e) ? 0 : 1000) + Math.abs(y - (ny + l.h / 2));
+      if (score < bestScore) [best, bestScore] = [e, score];
     }
     return best;
   }
@@ -440,14 +480,15 @@ class TrackEditor {
       g.setLineDash([]);
     }
 
-    // Notes: dimmed outside the selection, white where hovered, outlined where removed
+    // Notes: dimmed outside the selection, white where hovered, outlined where removed,
+    // faint where too short to show in play
     const sel = this.narrowed() ? new Set(this.selected()) : null;
     for (const e of this.notes) {
       if (e.t + e.d < t0 || e.t > t1) continue;
       const l = this.lanes[e.n.ch];
       const [nx, ny, nw] = [x(e.t), l.y(e.n.midi), Math.max(2, e.d * this.pps - 1)];
       const color = this.highlight?.(e) ? '#ffffff' : ROLE_COLORS[e.role];
-      g.globalAlpha = !sel || sel.has(e) ? 1 : 0.5;
+      g.globalAlpha = (!sel || sel.has(e) ? 1 : 0.5) * (playable(e) ? 1 : 0.35);
       if (e.role === 'off') {
         g.strokeStyle = color;
         g.strokeRect(nx + 0.5, ny + 0.5, Math.max(1, nw - 1), Math.max(1, l.h - 1));
