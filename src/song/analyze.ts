@@ -14,6 +14,8 @@ export interface Note {
   vel: number;
   /** Pulse duty cycle at the note's start (0-3; 0 for the triangle). With `vel` it tells a channel's sounds apart */
   duty: number;
+  /** A slide (a fast run joined by a `slide` edit) goes from `midi` to this pitch */
+  slideTo?: number;
 }
 
 export interface SongAnalysis {

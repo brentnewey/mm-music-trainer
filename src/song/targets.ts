@@ -32,15 +32,19 @@ export function buildTargets(a: SongAnalysis, channels: number[], opts: TargetOp
   for (const p of picked) {
     const { n } = p;
     while (recent.length && n.start - recent[0].n.start > 2) recent.shift();
-    if (recent.some((r) => r.n.midi === n.midi && r.n.ch !== n.ch)) continue;
+    // A slide is never a unison
+    const slide = n.slideTo !== undefined;
+    if (!slide && recent.some((r) => r.n.midi === n.midi && r.n.ch !== n.ch && r.n.slideTo === undefined)) continue;
     recent.push(p);
-    out.push({
+    const t: TargetNote = {
       midi: n.midi + 12 * opts.octaveShift,
       time: n.start * scale,
       duration: (Math.min(n.end, a.endFrame) - n.start) * scale,
       ch: n.ch,
       hand: p.role,
-    });
+    };
+    if (slide) t.slideTo = n.slideTo! + 12 * opts.octaveShift;
+    out.push(t);
   }
   return out;
 }

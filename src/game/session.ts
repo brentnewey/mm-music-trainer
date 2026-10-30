@@ -94,7 +94,7 @@ export class Session {
     const span = this.loopSpan!;
     while (songTime + LOOP_QUEUE_AHEAD > this.passEnd(this.queuedPasses)) {
       const shift = this.queuedPasses * span.length;
-      this.judge.append(this.loopTemplate.map((n) => ({ midi: n.midi, ch: n.ch, hand: n.hand, finger: n.finger, duration: n.duration, time: n.time + shift })));
+      this.judge.append(this.loopTemplate.map((n) => ({ midi: n.midi, slideTo: n.slideTo, ch: n.ch, hand: n.hand, finger: n.finger, duration: n.duration, time: n.time + shift })));
       this.queuedPasses++;
     }
     const k = this.passAccuracies.length + 1;
@@ -145,6 +145,8 @@ export class Session {
       this.highway.keyState.set(e.midi, 'good');
       const label = r.judgment === 'perfect' ? 'PERFECT' : r.judgment === 'great' ? 'GREAT' : r.offset < 0 ? 'EARLY' : 'LATE';
       this.highway.popup(label, r.judgment, r.note.midi, performance.now() / 1000);
+    } else if (r.kind === 'slide') {
+      this.highway.keyState.set(e.midi, 'good');
     } else {
       this.highway.keyState.set(e.midi, 'bad');
     }
@@ -157,7 +159,7 @@ export class Session {
   };
 
   private keyMatches(n: TargetNote, midi: number) {
-    return this.settings.octaveForgiving ? (n.midi - midi) % 12 === 0 : n.midi === midi;
+    return this.judge.keyMatches(n, midi);
   }
 
   /** Stop mode: the chord the song is waiting at, or one about to arrive (pressed a little early) */
@@ -176,6 +178,11 @@ export class Session {
   private stopModeNoteOn(e: NoteEvent) {
     const chord = this.stopModeChord();
     if (!chord.some((n) => this.keyMatches(n, e.midi))) {
+      // Keys along a slide after its start are part of it
+      if (this.judge.inSlide(e.midi, this.judgeTime(e.time))) {
+        this.highway.keyState.set(e.midi, 'good');
+        return;
+      }
       this.judge.wrongNote();
       this.highway.keyState.set(e.midi, 'bad');
       return;
@@ -222,7 +229,7 @@ export class Session {
       combo: s.combo,
       accuracy: judged ? summarize({ ...s, total: judged }).accuracy : 1,
       progress: Math.max(0, Math.min(1, this.loopSpan ? this.loopProgress(songTime) : (songTime - this.startPos) / (this.endTime - this.startPos))),
-      waiting: this.waitingFor.length ? this.waitingFor.filter((n) => !this.isHeld(n)).map((n) => noteName(n.midi)).join(' + ') : null,
+      waiting: this.waitingFor.length ? this.waitingFor.filter((n) => !this.isHeld(n)).map((n) => (n.slideTo !== undefined ? 'slide from ' : '') + noteName(n.midi)).join(' + ') : null,
       countdown: this.countdown(songTime),
       pass: this.loopSpan ? this.passAccuracies.length + 1 : null,
       passBanner: this.passBanner && wall < this.passBanner.until ? this.passBanner.text : null,

@@ -335,6 +335,9 @@ async function togglePreview(t: DiscoveredTrack) {
 let sectionPicker: SectionPicker | null = null;
 const describeSection = (s: Section) => `${formatClock(s.start)} – ${formatClock(s.end)}`;
 
+/** Where the track editor was last left for each song (`trackKey`), to reopen it there this session */
+const editorViews = new Map<string, EditorView>();
+
 /** Practice started from the track editor: the editor and song dialog to come back to */
 interface EditorDetour { view: EditorView; mode: 'practice' | 'score'; stop: boolean }
 
@@ -438,7 +441,7 @@ async function openSongDialog(t: DiscoveredTrack, title: string, detour?: Editor
   renderEditInfo();
   // Set when practising from the editor: quitting that practice comes back to it
   let backToEditor: EditorDetour | null = null;
-  const openEditor = async (view?: EditorView) => {
+  const openEditor = async (view = editorViews.get(songKey)) => {
     const result = await openTrackEditor({
       title,
       analysis: a,
@@ -454,12 +457,13 @@ async function openSongDialog(t: DiscoveredTrack, title: string, detour?: Editor
       sampleRate: SAMPLE_RATE,
       view,
     });
+    editorViews.set(songKey, result.view);
     // The edits may have emptied the chosen part
     if (!available(chart)) chart = CHARTS.find(available) ?? chart;
     renderEditInfo();
     renderParts();
     renderTrackList();
-    if (result) {
+    if (result.practice) {
       // Practise from the editor's selection with this dialog's settings, keeping its stop mode;
       // the pause menu and results then offer Back to editor
       const stop = field('waitMode').checked;

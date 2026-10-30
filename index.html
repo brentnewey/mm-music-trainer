@@ -140,7 +140,7 @@
     <dialog id="edit-dialog" class="panel dialog wide">
       <h2 id="edit-title"></h2>
       <p class="hint">Drag across the roll to select a stretch of the song, or click a note. Choose which channels and sounds the selection
-        covers, then send it to a hand or remove it. Removed notes still play in the music; they're just not yours to play.</p>
+        covers, then send it to a hand or remove it. Removed notes still play in the music; they're just not yours to play. Ctrl+Z undoes a change, Ctrl+Y redoes it.</p>
       <div class="edit-toolbar">
         <button type="button" class="btn small" id="edit-listen">▶ Listen</button>
         <button type="button" class="btn small primary" id="edit-practice" title="Close the editor and practise the selected stretch, or from the selected note to the end, with the song dialog's part and settings">Practise from here ▶</button>
@@ -165,6 +165,8 @@
           <span class="hint">or</span>
           <button type="button" class="btn small" data-role="join" title="Fold each note on the selected channels that repeats a note of the same pitch on another channel (an echo, still sounding or just ended) into that note, held until the echo ends. Works on a stretch, the whole song or one note">Join echoes</button>
           <button type="button" class="btn small" data-role="merge" title="Join each channel's selected notes (a vibrato or trill written as many short notes) into one held note at the pitch held longest. Select a stretch of the song first">Merge into one note</button>
+          <button type="button" class="btn small" data-role="slide" title="Turn each channel's selected notes (a run too fast to play note by note) into one slide from the first note's pitch to the last's: start it on time near its first key, then sweep along the keys. Select a stretch of the song first">Slide</button>
+          <button type="button" class="btn small" data-role="split" title="Cut each note on the selected channels that's held across the start or end of the selected stretch, so you strike it again there. Drag from where the first new note should start to where the next should (edges snap to note starts on any channel)">Split</button>
         </div>
       </fieldset>
       <fieldset>

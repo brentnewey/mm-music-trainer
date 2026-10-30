@@ -58,4 +58,22 @@ describe('Judge', () => {
     // accuracy 3/4, best combo 2 of 4
     expect(j.stats.score).toBe(Math.round(1e6 * (0.9 * 0.75 + 0.1 * 0.5)));
   });
+
+  it('hits a slide on a key near its start, then takes keys along it', () => {
+    const slide: TargetNote = { midi: 76, slideTo: 60, time: 1, duration: 0.33, ch: 1 };
+    const j = new Judge([slide, note(67, 2)], { octaveForgiving: false });
+    expect(j.noteOn(77, 1.01)).toMatchObject({ kind: 'hit', judgment: 'perfect' });
+    for (const [m, t] of [[74, 1.05], [71, 1.12], [65, 1.2], [60, 1.3], [59, 1.4]]) expect(j.noteOn(m, t)).toEqual({ kind: 'slide' });
+    // Past its end, or outside its keys, a press is wrong again
+    expect(j.noteOn(50, 1.2)).toEqual({ kind: 'wrong' });
+    expect(j.noteOn(64, 1.6)).toEqual({ kind: 'wrong' });
+    expect(j.stats).toMatchObject({ wrong: 2, combo: 0 });
+  });
+
+  it('misses a slide started too far from its first key', () => {
+    const j = new Judge([{ midi: 76, slideTo: 60, time: 1, duration: 0.33, ch: 1 }], { octaveForgiving: false });
+    expect(j.noteOn(70, 1)).toEqual({ kind: 'slide' });
+    j.advance(2);
+    expect(j.stats.counts.miss).toBe(1);
+  });
 });

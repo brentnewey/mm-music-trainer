@@ -187,9 +187,10 @@ function fingerHand(events: Event[]) {
   }
 }
 
-/** Sets `finger` on every note, for the hand in `hand` (falling back to triangle = left hand). */
+/** Sets `finger` on every note but slides, for the hand in `hand` (falling back to triangle = left hand). */
 export function assignFingering(notes: TargetNote[]) {
   for (const n of notes) delete n.finger;
+  notes = notes.filter((n) => n.slideTo === undefined);
   const isLeft = (n: TargetNote) => (n.hand ?? (n.ch === 2 ? 'L' : 'R')) === 'L';
   fingerHand(handEvents(notes.filter((n) => !isLeft(n)), false));
   fingerHand(handEvents(notes.filter(isLeft), true));

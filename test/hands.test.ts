@@ -79,6 +79,51 @@ describe('applyMerges', () => {
   });
 });
 
+describe('splits', () => {
+  const long: Note = { ch: 0, midi: 69, start: 1, end: 315, vel: 8, duty: 2 };
+  const t = (f: number) => f * FRAME_SECONDS;
+
+  it('cuts a note held across the ends of the range', () => {
+    const out = applyMerges([long], [{ ch: 0, from: t(90), to: t(180), hand: 'split' }]);
+    expect(out.map((n) => [n.start, n.end])).toEqual([[1, 90], [90, 180], [180, 315]]);
+    expect(out.every((n) => n.midi === 69 && n.vel === 8)).toBe(true);
+  });
+
+  it('cuts a merged note when it comes after the merge, and leaves other channels and sounds', () => {
+    const taps: Note[] = Array.from({ length: 50 }, (_, i) => ({ ch: 0, midi: 69 + (i % 2), start: 1 + 6 * i, end: 7 + 6 * i, vel: 8, duty: 2 }));
+    const other: Note = { ...long, ch: 1 };
+    const quiet: Note = { ...long, vel: 3 };
+    const edits: EditRule[] = [{ ch: 0, sound: '2:8', hand: 'merge' }, { ch: 0, sound: '2:8', from: t(150), hand: 'split' }];
+    const out = applyMerges([...taps, other, quiet], edits);
+    expect(out.filter((n) => n.ch === 0 && n.vel === 8).map((n) => [n.start, n.end])).toEqual([[1, 150], [150, 301]]);
+    expect(out).toContainEqual(other);
+    expect(out).toContainEqual(quiet);
+  });
+
+  it("doesn't cut a note at its own start or end", () => {
+    expect(applyMerges([long], [{ ch: 0, from: t(1), to: t(315), hand: 'split' }])).toEqual([long]);
+  });
+});
+
+describe('slides', () => {
+  // Ring Man's Pulse 2 at 0:17: a C major scale down from E5 to C4, two frames a note
+  const run: Note[] = [76, 74, 72, 71, 69, 67, 65, 64, 62, 60].map((midi, i) => ({ ch: 1, midi, start: 1037 + 2 * i, end: 1039 + 2 * i, vel: 8, duty: 2 }));
+  const slide: EditRule[] = [{ ch: 1, from: 17.2, to: 17.6, hand: 'slide' }];
+  const t = (f: number) => f * FRAME_SECONDS;
+
+  it('joins a run into one slide from its first pitch to its last', () => {
+    expect(applyMerges(run, slide)).toEqual([{ ch: 1, midi: 76, slideTo: 60, start: 1037, end: 1057, vel: 8, duty: 2 }]);
+    expect(t(1037)).toBeGreaterThan(17.2);
+  });
+
+  it('keeps the slide through the length filter, octave-shifted', () => {
+    const a: SongAnalysis = { id: 0, loopStart: -1, endFrame: 2000, notes: run };
+    const out = buildTargets(a, [1], { minFrames: 4, speed: 1, octaveShift: -1, edits: slide });
+    expect(out).toMatchObject([{ midi: 64, slideTo: 48, hand: 'R' }]);
+    expect(buildTargets(a, [1], { minFrames: 4, speed: 1, octaveShift: 0 }).length).toBe(0);
+  });
+});
+
 describe('joining echoes', () => {
   const note = (ch: number, midi: number, start: number, len: number): Note => ({ ch, midi, start, end: start + len, vel: 8, duty: 2 });
   // Pulse 2 repeats Pulse 1 12 frames later: once while it still sounds, once after a short note ends

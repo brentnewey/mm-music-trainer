@@ -44,10 +44,11 @@ export class Highway {
   }
 
   /** Fits the keyboard to whole octaves covering the notes (at least two octaves). */
-  setRange(notes: { midi: number }[]) {
+  setRange(notes: { midi: number; slideTo?: number }[]) {
     if (!notes.length) return;
-    let lo = Math.min(...notes.map((n) => n.midi));
-    let hi = Math.max(...notes.map((n) => n.midi));
+    const keys = notes.flatMap((n) => (n.slideTo === undefined ? [n.midi] : [n.midi, n.slideTo]));
+    let lo = Math.min(...keys);
+    let hi = Math.max(...keys);
     lo = Math.floor(lo / 12) * 12;
     hi = Math.ceil((hi + 1) / 12) * 12 - 1;
     while (hi - lo + 1 < 24) { if (lo >= 36) lo -= 12; else hi += 12; }
@@ -106,12 +107,16 @@ export class Highway {
       }
     }
 
-    // Notes (white-key notes first so black-key notes draw on top)
+    // Slides under the notes, then notes (white-key notes first so black-key notes draw on top)
     const visibleAhead = hitY / this.pxPerSec;
-    for (const pass of [false, true]) {
+    for (const pass of ['slide', false, true] as const) {
       for (const n of notes) {
         if (n.time > songTime + visibleAhead) break;
         if (n.time + n.duration < songTime - 0.5) continue;
+        if (n.slideTo !== undefined) {
+          if (pass === 'slide') this.drawSlide(n, songTime, hitY);
+          continue;
+        }
         if (isBlack(n.midi) !== pass || n.midi < this.lo || n.midi > this.hi) continue;
         this.drawNote(n, songTime, hitY);
       }
@@ -160,6 +165,52 @@ export class Highway {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
       ctx.fillText(NOTE_NAMES[n.midi % 12].replace('#', '♯'), r.x + r.w / 2, labelBottom);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /** A slide: a thick line leaning from its first key (at the bottom) to its last, with an arrow along it */
+  private drawSlide(n: TargetNote, songTime: number, hitY: number) {
+    const { ctx } = this;
+    const centre = (m: number) => { const r = this.keyRect(Math.max(this.lo, Math.min(this.hi, m))); return r.x + r.w / 2; };
+    const thick = Math.max(8, this.keyRect(n.midi).w * 0.8);
+    const yBottom = hitY - (n.time - songTime) * this.pxPerSec - thick / 2;
+    const yTop = Math.min(yBottom, hitY - (n.time + n.duration - songTime) * this.pxPerSec + thick / 2);
+    const [x0, x1] = [centre(n.midi), centre(n.slideTo!)];
+    let color = noteColor(n);
+    let alpha = 1;
+    if (n.judgment === 'miss') { color = '#5a5a6a'; alpha = 0.6; }
+    else if (n.judgment) { color = JUDGE_COLORS[n.judgment]; alpha = 0.55; }
+    ctx.globalAlpha = alpha;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = thick + 2;
+    ctx.beginPath(); ctx.moveTo(x0, yBottom); ctx.lineTo(x1, yTop); ctx.stroke();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = thick;
+    ctx.stroke();
+    // Arrowhead at the last key
+    const ang = Math.atan2(yTop - yBottom, x1 - x0);
+    const head = thick * 0.45;
+    ctx.strokeStyle = '#0b0f24';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x0 + Math.cos(ang) * head, yBottom + Math.sin(ang) * head);
+    ctx.lineTo(x1, yTop);
+    for (const d of [-0.6, 0.6]) {
+      ctx.moveTo(x1, yTop);
+      ctx.lineTo(x1 - head * Math.cos(ang + d), yTop - head * Math.sin(ang + d));
+    }
+    ctx.stroke();
+    ctx.lineCap = 'butt';
+    ctx.lineWidth = 1;
+    // The key to start on, below the line's first end
+    if (this.showNoteNames && !n.judgment) {
+      ctx.fillStyle = color;
+      ctx.font = `bold ${Math.min(13, thick * 0.7)}px "Press Start 2P", monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(NOTE_NAMES[n.midi % 12].replace('#', '♯'), x0, yBottom + thick / 2 + 3);
     }
     ctx.globalAlpha = 1;
   }

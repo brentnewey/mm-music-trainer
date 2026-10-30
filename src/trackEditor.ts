@@ -3,12 +3,14 @@
 // to channels and sounds, then move it to a hand or remove it. The edits are rules
 // (see song/hands.ts) saved per song in track-edits.json. A stretch can also be
 // merged into one held note, for a vibrato or trill written as many short notes,
-// and echoes on another channel can be joined to the notes they repeat.
+// or into one slide along the keys, for a run too fast to play note by note. A long
+// note can be split where a stretch starts and ends, to strike it again, and echoes
+// on another channel can be joined to the notes they repeat.
 import type { AudioEngine } from './audio/engine';
 import { noteName } from './game/highway';
 import { formatClock } from './sectionPicker';
 import { FRAME_SECONDS, type Note, type SongAnalysis } from './song/analyze';
-import { CHANNEL_HAND, applyMerges, roleOf, ruleCovers, soundOf, type EditRule, type Role } from './song/hands';
+import { CHANNEL_HAND, applyMerges, roleOf, ruleCovers, soundOf, splitPoints, type EditRule, type Role } from './song/hands';
 
 export interface EditorContext {
   title: string;
@@ -20,7 +22,7 @@ export interface EditorContext {
   /** Renders the song at 100% speed with per-channel gains [p1, p2, tri, noise, dmc] */
   render(gains: number[]): Promise<Float32Array>;
   sampleRate: number;
-  /** Where to pick up, when coming back from practising a selection */
+  /** Where to pick up: the view the editor was last left in for this song */
   view?: EditorView;
 }
 
@@ -35,6 +37,11 @@ export interface EditorView {
   filter?: string[][];
   pps?: number;
   scroll?: number;
+  /** The dialog's own scroll, when the window is too short to show it all */
+  top?: number;
+  /** Earlier and undone lists of edits, for Ctrl+Z and Ctrl+Y */
+  undo?: EditRule[][];
+  redo?: EditRule[][];
 }
 
 interface EdNote { n: Note; t: number; d: number; sound: string; role: Role }
@@ -44,7 +51,7 @@ const CHANNELS = ['Pulse 1', 'Pulse 2', 'Triangle'];
 /** Removed notes are drawn as outlines */
 const ROLE_COLORS: Record<Role, string> = { R: '#3cbcfc', L: '#fca044', off: '#8890b8' };
 type Action = EditRule['hand'];
-const ROLE_NAMES: Record<Action, string> = { R: 'right hand', L: 'left hand', off: 'removed', default: 'usual hand', merge: 'merged into one note', join: 'echoes joined to the notes they repeat' };
+const ROLE_NAMES: Record<Action, string> = { R: 'right hand', L: 'left hand', off: 'removed', default: 'usual hand', merge: 'merged into one note', slide: 'made a slide', split: 'split', join: 'echoes joined to the notes they repeat' };
 const DUTY = ['12.5%', '25%', '50%', '75%'];
 const AXIS_H = 18;
 const LANE_H = 112;
@@ -62,10 +69,10 @@ const r3 = (t: number) => Math.round(t * 1000) / 1000;
 const playable = (e: EdNote) => e.n.end - e.n.start >= SCORE_MIN_FRAMES;
 
 /**
- * What to do after the editor closes: practise a stretch of the song (100%-speed
- * seconds) and then come back to `view`, or nothing
+ * How the editor was left, to reopen it there, and whether to practise a stretch of
+ * the song (100%-speed seconds) next
  */
-export type EditorResult = { practice: { start: number; end: number }; view: EditorView } | null;
+export interface EditorResult { view: EditorView; practice?: { start: number; end: number } }
 
 export function openTrackEditor(ctx: EditorContext): Promise<EditorResult> {
   return new Promise((resolve) => new TrackEditor(ctx, resolve));
@@ -97,8 +104,13 @@ class TrackEditor {
   /** Each channel lane's pitch-to-y mapping and note height, as last drawn */
   private lanes: { y: (midi: number) => number; h: number }[] = [];
   private frame = 0;
+  /** The edits before each change, newest last, and the changes undone since */
+  private undoStack: EditRule[][] = [];
+  private redoStack: EditRule[][] = [];
 
-  private result: EditorResult = null;
+  private practice: EditorResult['practice'];
+  /** The roll's and the dialog's scroll, kept as they change since a closed dialog reads 0 */
+  private scroll = { roll: 0, top: 0 };
 
   constructor(private ctx: EditorContext, private done: (r: EditorResult) => void) {
     const a = ctx.analysis;
@@ -114,7 +126,8 @@ class TrackEditor {
     this.canvas.onpointermove = this.move;
     this.canvas.onpointerup = this.up;
     this.canvas.onpointerleave = () => { this.highlight = null; this.draw(); };
-    this.roll.onscroll = () => this.draw();
+    this.roll.onscroll = () => { this.scroll.roll = this.roll.scrollLeft; this.draw(); };
+    this.dialog.onscroll = () => { this.scroll.top = this.dialog.scrollTop; };
     $('edit-zoom-in').onclick = () => this.zoom(1.5);
     $('edit-zoom-out').onclick = () => this.zoom(1 / 1.5);
     $('edit-fit').onclick = () => this.zoom(0);
@@ -131,20 +144,25 @@ class TrackEditor {
     $('edit-practice').onclick = () => {
       // The selected stretch, or from the picked note (or the start) to the end
       const start = this.range?.start ?? this.picked?.t ?? 0;
+      this.practice = { start, end: this.range?.end ?? this.duration };
+      this.dialog.close();
+    };
+    document.addEventListener('keydown', this.onKey);
+    this.dialog.onclose = () => {
+      this.stopListening();
+      document.removeEventListener('keydown', this.onKey);
+      this.dialog.onclose = null;
       const view: EditorView = {
         range: this.range,
         picked: this.picked && { ch: this.picked.n.ch, start: this.picked.n.start },
         filter: this.filter.map((f) => [...f]),
         pps: this.pps,
-        scroll: this.roll.scrollLeft,
+        scroll: this.scroll.roll,
+        top: this.scroll.top,
+        undo: this.undoStack,
+        redo: this.redoStack,
       };
-      this.result = { practice: { start, end: this.range?.end ?? this.duration }, view };
-      this.dialog.close();
-    };
-    this.dialog.onclose = () => {
-      this.stopListening();
-      this.dialog.onclose = null;
-      this.done(this.result);
+      this.done({ view, practice: this.practice });
     };
 
     this.dialog.showModal();
@@ -155,10 +173,15 @@ class TrackEditor {
       this.range = v.range;
       const p = v.picked;
       this.picked = p && (this.notes.find((e) => e.n.ch === p.ch && e.n.start === p.start) ?? null);
+      this.undoStack = v.undo ?? [];
+      this.redoStack = v.redo ?? [];
     }
     this.layout();
-    if (v) this.roll.scrollLeft = v.scroll ?? (v.range ? v.range.start * this.pps - 40 : 0);
+    this.roll.scrollLeft = v ? v.scroll ?? (v.range ? v.range.start * this.pps - 40 : 0) : 0;
+    this.scroll.roll = this.roll.scrollLeft;
     this.renderPanel();
+    // After opening scrolls the first button into view
+    requestAnimationFrame(() => { this.dialog.scrollTop = v?.top ?? 0; });
   }
 
   // ---------- model ----------
@@ -190,6 +213,31 @@ class TrackEditor {
   }
 
   private commit(edits: EditRule[]) {
+    this.undoStack.push(this.edits);
+    this.redoStack = [];
+    this.setEdits(edits);
+  }
+
+  /** Steps back to the edits before the last change, or forward again (`redo`) */
+  private undo(redo = false) {
+    const [from, to] = redo ? [this.redoStack, this.undoStack] : [this.undoStack, this.redoStack];
+    const edits = from.pop();
+    if (!edits) return;
+    to.push(this.edits);
+    this.setEdits(edits);
+  }
+
+  /** Ctrl+Z undoes the last change to the edits; Ctrl+Y or Ctrl+Shift+Z redoes it */
+  private onKey = (ev: KeyboardEvent) => {
+    if (!(ev.ctrlKey || ev.metaKey) || ev.altKey) return;
+    const key = ev.key.toLowerCase();
+    const redo = key === 'y' || (key === 'z' && ev.shiftKey);
+    if (key !== 'z' && !redo) return;
+    ev.preventDefault();
+    this.undo(redo);
+  };
+
+  private setEdits(edits: EditRule[]) {
     this.edits = edits;
     this.applyEdits();
     this.ctx.save(this.edits.map((r) => ({ ...r })));
@@ -212,15 +260,23 @@ class TrackEditor {
     return !!(this.picked || this.range || this.filter.some((f, ch) => f.size < this.sounds[ch].length));
   }
 
-  /** Whether merging can apply: a stretch of the song with two or more notes on a channel */
+  /** Whether merging or a slide can apply: a stretch of the song with two or more notes on a channel */
   private canMerge(sel: EdNote[]) {
     return !this.picked && !!this.range && [0, 1, 2].some((ch) => sel.filter((e) => e.n.ch === ch).length > 1);
   }
 
-  /** Adds edits sending the selection to a hand, removing it, or merging it */
+  /** Notes on the selected channels and sounds held across either end of the selected stretch, which a split cuts there */
+  private toSplit(): EdNote[] {
+    const r = this.range;
+    if (this.picked || !r) return [];
+    return this.notes.filter((e) => this.filter[e.n.ch].has(e.sound) && splitPoints({ ch: e.n.ch, from: r.start, to: r.end }, e.n).length > 0);
+  }
+
+  /** Adds edits sending the selection to a hand, removing it, merging it or splitting notes at its ends */
   private assign(role: Action) {
-    const sel = this.selected();
-    if (!sel.length || (role === 'merge' && !this.canMerge(sel))) return;
+    const joins = role === 'merge' || role === 'slide';
+    const sel = role === 'split' ? this.toSplit() : this.selected();
+    if (!sel.length || (joins && !this.canMerge(sel))) return;
     const added: EditRule[] = [];
     if (this.picked) {
       // One note: a window narrower than a frame around its start
@@ -229,7 +285,7 @@ class TrackEditor {
     } else {
       const span = this.range ? { from: r3(this.range.start), to: r3(this.range.end) } : {};
       for (const ch of [0, 1, 2]) {
-        if (sel.filter((e) => e.n.ch === ch).length < (role === 'merge' ? 2 : 1)) continue;
+        if (sel.filter((e) => e.n.ch === ch).length < (joins ? 2 : 1)) continue;
         const f = this.filter[ch];
         if (f.size === this.sounds[ch].length) added.push({ ch, ...span, hand: role });
         else for (const s of this.sounds[ch]) if (f.has(s.key)) added.push({ ch, sound: s.key, ...span, hand: role });
@@ -255,7 +311,8 @@ class TrackEditor {
       label.innerHTML = `One note: <b>${noteName(n.midi)}</b> on ${CHANNELS[n.ch]} (${this.soundName(n.ch, this.picked.sound)}) at ${formatClock(t)}, ${ROLE_NAMES[this.picked.role]}`;
     } else {
       const where = this.range ? `<b>${formatClock(this.range.start)} – ${formatClock(this.range.end)}</b>` : '<b>Whole song</b>';
-      label.innerHTML = `${where} · ${sel.length} note${sel.length === 1 ? '' : 's'}`;
+      const held = this.toSplit().length;
+      label.innerHTML = `${where} · ${sel.length} note${sel.length === 1 ? '' : 's'}` + (held ? ` · ${held} held across its ends` : '');
     }
     $<HTMLButtonElement>('edit-whole').disabled = !this.range && !this.picked;
 
@@ -302,7 +359,8 @@ class TrackEditor {
       box.append(row);
     }
     for (const b of document.querySelectorAll<HTMLButtonElement>('#edit-actions [data-role]')) {
-      b.disabled = b.dataset.role === 'merge' ? !this.canMerge(sel) : !sel.length;
+      const role = b.dataset.role;
+      b.disabled = role === 'merge' || role === 'slide' ? !this.canMerge(sel) : role === 'split' ? !this.toSplit().length : !sel.length;
     }
 
     // Edits so far, newest last
@@ -338,6 +396,10 @@ class TrackEditor {
       return `${CHANNELS[r.ch]} ${e ? noteName(e.n.midi) : 'note'} at ${formatClock(r.from + 0.004)} → ${to}`;
     }
     const sound = r.sound !== undefined ? ` ${this.soundName(r.ch, r.sound)}` : '';
+    if (r.hand === 'split') {
+      const at = [r.from, r.to].filter((t) => t !== undefined).map((t) => formatClock(t!));
+      return `${CHANNELS[r.ch]}${sound} → split at ${at.join(' and ')}`;
+    }
     const when = r.from === undefined && r.to === undefined ? 'whole song'
       : `${r.from === undefined ? 'start' : formatClock(r.from)} – ${r.to === undefined ? 'end' : formatClock(r.to)}`;
     return `${CHANNELS[r.ch]}${sound}, ${when} → ${to}`;
@@ -376,7 +438,7 @@ class TrackEditor {
   }
 
   private laneGeometry(ch: number) {
-    const ps = this.notes.filter((e) => e.n.ch === ch).map((e) => e.n.midi);
+    const ps = this.notes.filter((e) => e.n.ch === ch).flatMap((e) => [e.n.midi, e.n.slideTo ?? e.n.midi]);
     const lo = ps.length ? Math.min(...ps) : 60;
     const span = Math.max(ps.length ? Math.max(...ps) - lo : 0, 12);
     const top = AXIS_H + ch * LANE_H + 8;
@@ -489,7 +551,18 @@ class TrackEditor {
       const [nx, ny, nw] = [x(e.t), l.y(e.n.midi), Math.max(2, e.d * this.pps - 1)];
       const color = this.highlight?.(e) ? '#ffffff' : ROLE_COLORS[e.role];
       g.globalAlpha = (!sel || sel.has(e) ? 1 : 0.5) * (playable(e) ? 1 : 0.35);
-      if (e.role === 'off') {
+      if (e.n.slideTo !== undefined) {
+        // A slide: a sloping line from its first pitch to its last, dashed where removed
+        g.strokeStyle = color;
+        g.lineWidth = l.h;
+        if (e.role === 'off') g.setLineDash([3, 3]);
+        g.beginPath();
+        g.moveTo(nx, ny + l.h / 2);
+        g.lineTo(nx + nw, l.y(e.n.slideTo) + l.h / 2);
+        g.stroke();
+        g.setLineDash([]);
+        g.lineWidth = 1;
+      } else if (e.role === 'off') {
         g.strokeStyle = color;
         g.strokeRect(nx + 0.5, ny + 0.5, Math.max(1, nw - 1), Math.max(1, l.h - 1));
       } else {
