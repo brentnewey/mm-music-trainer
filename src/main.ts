@@ -4,6 +4,7 @@ import { SongWorkerClient } from './worker/protocol';
 import { AudioEngine } from './audio/engine';
 import { NoteInput } from './input/midi';
 import { LEAD_IN, Session, type SessionHud, type SessionResult } from './game/session';
+import { LADDER, SpeedLadder, describeLadder } from './game/ladder';
 import { SectionPicker, formatClock, type Section } from './sectionPicker';
 import { openTrackEditor, type EditorView } from './trackEditor';
 import { isStageTrack } from './stages';
@@ -11,7 +12,7 @@ import { noteName } from './game/highway';
 import { buildPart, partChannels, rangeOf, type PartId } from './song/targets';
 import { FRAME_SECONDS, type SongAnalysis } from './song/analyze';
 import { rateDifficulty, type Difficulty } from './song/difficulty';
-import { assignFingering } from './song/fingering';
+import { assignFingering, markWideReaches } from './song/fingering';
 import type { DiscoveredTrack } from './song/discover';
 import type { TargetNote } from './game/judge';
 import {
@@ -137,6 +138,12 @@ function showLibrary() {
     b.className = 'btn' + (g === currentGame ? ' active' : '');
     b.textContent = g.title.replace('Mega Man', 'MM').replace(/^MM$/, 'MM1');
     b.title = g.title;
+    // A dot on the game whose song was played last, so it is findable from any tab
+    const last = getLastPlayed();
+    if (last && last.game === g.id) {
+      b.classList.add('has-last');
+      b.title = `${g.title} · ${describeLastPlayed(last)}`;
+    }
     b.onclick = () => { currentGame = g; showLibrary(); };
     tabs.append(b);
   }
@@ -234,6 +241,23 @@ function difficultyBadge(d: Difficulty) {
 /** CSS class colouring a grade: gold S, green A, yellow B, orange C, red below */
 const gradeClass = (grade: string) => `g-${['S', 'A', 'B', 'C'].includes(grade) ? grade : 'D'}`;
 
+/** The track played most recently, marked in the song list for reference */
+interface LastPlayed {
+  game: string;
+  id: number;
+  part: PartId;
+  speed: number;
+  /** A score run rather than practice */
+  score: boolean;
+  at: number;
+}
+
+const getLastPlayed = () => loadJson<LastPlayed | null>('lastPlayed', null);
+
+const describeLastPlayed = (l: LastPlayed) =>
+  `Last played ${new Date(l.at).toLocaleString()} · ${CHARTS.find((c) => c.id === l.part)?.label ?? l.part}`
+  + ` · ${pct(l.speed)} · ${l.score ? 'score run' : 'practice'}`;
+
 function trackName(gameId: string, t: DiscoveredTrack, index: number) {
   return getTrackNames()[trackKey(gameId, t.id)] ?? `${t.kind === 'song' ? 'Track' : 'Jingle'} ${String(index + 1).padStart(2, '0')}`;
 }
@@ -243,6 +267,7 @@ function renderTrackList() {
   body.innerHTML = '';
   const view = getScoreView();
   const chart = CHARTS.find((c) => c.id === view.chart) ?? CHARTS[0];
+  const last = getLastPlayed();
   let played = 0;
   let fullCombos = 0;
   let shown = 0;
@@ -275,6 +300,14 @@ function renderTrackList() {
     const nameCell = tr.querySelector<HTMLElement>('.name')!;
     nameCell.textContent = trackName(currentGame.id, t, i);
     nameCell.title = 'Click to rename';
+    if (last && last.game === currentGame.id && last.id === t.id) {
+      tr.classList.add('last-played');
+      const mark = document.createElement('span');
+      mark.className = 'last-mark';
+      mark.textContent = 'last played';
+      mark.title = describeLastPlayed(last);
+      nameCell.append(mark);
+    }
     nameCell.insertAdjacentHTML('beforeend', '<span class="edit">✎ rename</span>');
     nameCell.onclick = () => editName(nameCell, key, trackName(currentGame.id, t, i));
     tr.querySelector<HTMLButtonElement>('[data-act=preview]')!.onclick = () => togglePreview(t);
@@ -477,7 +510,7 @@ async function openSongDialog(t: DiscoveredTrack, title: string, detour?: Editor
   $('edit-parts').onclick = () => openEditor();
 
   // ---- practice / score mode ----
-  const locked = ['minNoteFrames', 'octaveForgiving', 'loop'] as const;
+  const locked = ['minNoteFrames', 'octaveForgiving', 'loop', 'ladder'] as const;
   const setMode = (m: typeof mode) => {
     mode = m;
     for (const b of document.querySelectorAll<HTMLButtonElement>('#mode-switch [data-mode]')) b.classList.toggle('active', b.dataset.mode === m);
@@ -515,6 +548,9 @@ async function openSongDialog(t: DiscoveredTrack, title: string, detour?: Editor
   };
   field('speed').onchange = onRecordSetting;
   field('waitMode').onchange = onRecordSetting;
+  // The ladder needs passes to measure, so it goes hand in hand with Loop
+  field('ladder').onchange = () => { if (field('ladder').checked) field('loop').checked = true; };
+  field('loop').onchange = () => { if (!field('loop').checked) field('ladder').checked = false; };
 
   dialog.onclose = () => {
     if (dialog.returnValue !== 'play') return;
@@ -524,6 +560,8 @@ async function openSongDialog(t: DiscoveredTrack, title: string, detour?: Editor
       if (!el || (mode === 'score' && [...locked, 'speed', 'waitMode'].includes(k))) continue;
       (next as unknown as Record<string, number | boolean>)[k] = el.type === 'checkbox' ? el.checked : Number(el.value);
     }
+    // The ladder measures looped passes, so it implies Loop
+    if (next.ladder) next.loop = true;
     // Practising the editor's selection is a detour: it leaves the dialog's mode, stop
     // mode and practice section as they were for the next time you play the song
     const fromEditor = backToEditor;
@@ -532,6 +570,7 @@ async function openSongDialog(t: DiscoveredTrack, title: string, detour?: Editor
     if (mode === 'score') {
       const key = currentScoreKey();
       saveScoreView({ chart: chart.id, speed: key.speed, stop: key.stop });
+      ladder = null;
       startSession(t, title, a, chart, { ...next, ...SCORE_RUN_RULES, speed: key.speed, waitMode: key.stop }, { chart, key }, null);
     } else {
       practiceMemo[songKey] = chart.id;
@@ -540,6 +579,7 @@ async function openSongDialog(t: DiscoveredTrack, title: string, detour?: Editor
         if (picker.section) sectionMemo[songKey] = picker.section; else delete sectionMemo[songKey];
         saveJson('practiceSection', sectionMemo);
       }
+      ladder = next.ladder ? new SpeedLadder() : null;
       startSession(t, title, a, chart, next, null, picker.section, fromEditor && (() => openSongDialog(t, title, fromEditor)));
     }
   };
@@ -551,6 +591,8 @@ async function openSongDialog(t: DiscoveredTrack, title: string, detour?: Editor
 // ---------- gameplay ----------
 
 let session: Session | null = null;
+/** The speed ladder of the practice run in progress, if it has one */
+let ladder: SpeedLadder | null = null;
 
 /** A score run's chart and record key; null for practice */
 type ScoreRun = { chart: Chart; key: ScoreKey } | null;
@@ -560,7 +602,7 @@ type ScoreRun = { chart: Chart; key: ScoreKey } | null;
  * track editor, for the pause menu's and results' Back to editor; only practice
  * started from the editor has it
  */
-async function startSession(t: DiscoveredTrack, title: string, a: SongAnalysis, part: Chart, settings: Settings, scoreRun: ScoreRun, section: Section | null, toEditor: (() => void) | null = null) {
+async function startSession(t: DiscoveredTrack, title: string, a: SongAnalysis, part: Chart, settings: Settings, scoreRun: ScoreRun, section: Section | null, toEditor: (() => void) | null = null, banner: string | null = null) {
   showScreen('play-screen');
   $('loading').hidden = false;
   $('results-overlay').hidden = true;
@@ -601,16 +643,41 @@ async function startSession(t: DiscoveredTrack, title: string, a: SongAnalysis, 
   let notes = buildPart(a, part.id, opts);
   // Finger the whole part so a section's first notes get fingers that fit what came before
   assignFingering(notes);
+  markWideReaches(notes);
   if (range) {
     notes = notes.map((n) => ({ ...n, time: n.time + pad }))
       .filter((n) => n.time >= range.start - 1e-3 && n.time < range.end - 1e-3);
   }
-  const restart = () => { session?.destroy(); startSession(t, title, a, part, settings, scoreRun, section, toEditor); };
-  const quit = () => { session?.destroy(); session = null; document.onkeydown = null; showLibrary(); };
+  saveJson('lastPlayed', {
+    game: currentGame.id, id: t.id, part: part.id, speed: settings.speed, score: !!scoreRun, at: Date.now(),
+  } satisfies LastPlayed);
+  const restart = () => { session?.destroy(); ladder?.reset(); startSession(t, title, a, part, settings, scoreRun, section, toEditor); };
+  const quit = () => { session?.destroy(); session = null; ladder = null; document.onkeydown = null; showLibrary(); };
 
   session?.destroy();
   session = new Session($<HTMLCanvasElement>('highway'), audio, input, notes, settings, hud, (r) => showResults(r, settings, scoreRun), loopSpan, range);
+  // Speed ladder: each pass feeds the streaks, and a step restarts the section at the
+  // next speed, since the music has to be re-rendered to change tempo
+  if (ladder && loopSpan && !scoreRun) {
+    const lad = ladder;
+    session.onPass = (accuracy) => {
+      const move = lad.record(accuracy, settings.speed);
+      if (!move) return;
+      if (move.to === null) {
+        session?.banner(`${pct(move.from)} is the ${move.dir === 'up' ? 'fastest' : 'slowest'} speed`);
+        return;
+      }
+      const step = move.dir === 'up'
+        ? `▲ ${LADDER.up} passes at ${pct(LADDER.target)}+ → ${pct(move.to)}`
+        : `▼ ${LADDER.down} passes under ${pct(LADDER.target)} → ${pct(move.to)}`;
+      // Where the ladder reaches is where practice picks up next time
+      saveSettings({ ...getSettings(), speed: move.to });
+      session?.destroy();
+      startSession(t, title, a, part, { ...settings, speed: move.to }, scoreRun, section, toEditor, step);
+    };
+  }
   session.start();
+  if (banner) session.banner(banner, 5);
 
   for (const b of document.querySelectorAll<HTMLButtonElement>('#play-screen [data-action=editor]')) b.hidden = !toEditor;
   for (const btn of document.querySelectorAll<HTMLButtonElement>('#play-screen [data-action]')) {
@@ -632,9 +699,20 @@ async function startSession(t: DiscoveredTrack, title: string, a: SongAnalysis, 
   };
 }
 
+/** A fraction as a percentage, e.g. `70%` */
+const pct = (speed: number) => `${Math.round(speed * 100)}%`;
+
+/** How the ladder's streak stands, shown beside the pass counter */
+function ladderTag() {
+  if (!ladder) return '';
+  return ladder.misses
+    ? ` · ${ladder.misses}/${LADDER.down} under ${pct(LADDER.target)}`
+    : ` · ${ladder.hits}/${LADDER.up} at ${pct(LADDER.target)}+`;
+}
+
 const hud = {
   update(s: Parameters<SessionHud['update']>[0]) {
-    $('hud-pass').textContent = s.pass ? `LOOP · PASS ${s.pass}` : '';
+    $('hud-pass').textContent = s.pass ? `LOOP · PASS ${s.pass}${ladderTag()}` : '';
     $('pass-banner').textContent = s.passBanner ?? '';
     $('hud-score').textContent = s.score.toLocaleString();
     $('hud-combo').textContent = s.combo >= 5 ? `${s.combo} COMBO` : '';
@@ -674,7 +752,8 @@ function showResults(r: SessionResult, settings: Settings, scoreRun: ScoreRun) {
       <tr><td style="color:#f85858">Miss</td><td>${stats.counts.miss}</td></tr>
       <tr><td>Wrong notes</td><td>${stats.wrong}</td></tr>
     </table>
-    ${r.passes.length ? `<div class="passes">${r.passes.map((p, i) => `Pass ${i + 1}: ${(p * 100).toFixed(0)}%`).join(' · ')}</div>` : ''}
+    ${ladder?.log.length ? `<div class="passes">Ladder · ${escapeHtml(describeLadder(ladder.log))}</div>`
+      : r.passes.length ? `<div class="passes">${r.passes.map((p, i) => `Pass ${i + 1}: ${(p * 100).toFixed(0)}%`).join(' · ')}</div>` : ''}
     ${settings.waitMode ? '' : `<div class="calib">${offsetText}
       ${Math.abs(offset) >= 10 ? `<br><button class="btn small" id="apply-calib">Compensate ${offset > 0 ? '+' : ''}${offset} ms</button>` : ''}</div>`}`;
   const calib = document.getElementById('apply-calib');

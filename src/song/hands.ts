@@ -14,9 +14,10 @@ export const CHANNEL_HAND: Record<number, Hand> = { 0: 'R', 1: 'R', 2: 'L' };
 /**
  * One edit to a song's parts. Edits apply in order, so a later one wins where
  * they overlap. `default` puts notes back in their channel's usual hand,
- * `merge` joins the notes into one held note, `slide` joins a fast run into one
- * slide along the keys, `split` cuts notes held across the range's ends, and `join`
- * folds echoes into the note they repeat (see `applyMerges`).
+ * `merge` joins the notes into one held note, `tie` joins only runs of the same
+ * pitch, `slide` joins a fast run into one slide along the keys, `split` cuts notes
+ * held across the range's ends, `join` folds echoes into the note they repeat
+ * (see `applyMerges`), and `keep` plays notes the length filter would drop (`isKept`).
  */
 export interface EditRule {
   /** Channel: 0 = Pulse 1, 1 = Pulse 2, 2 = Triangle */
@@ -26,7 +27,7 @@ export interface EditRule {
   /** Applies to notes starting in [from, to), song seconds at 100% speed; either end may be left open. A split cuts at these times */
   from?: number;
   to?: number;
-  hand: Role | 'default' | 'merge' | 'slide' | 'split' | 'join';
+  hand: Role | 'default' | 'merge' | 'tie' | 'slide' | 'split' | 'join' | 'keep';
 }
 
 /** Song edits keyed by track (`trackKey`: game and hex sound ID) */
@@ -48,11 +49,14 @@ export function ruleCovers(r: EditRule, n: Note) {
 export function roleOf(n: Note, rules: EditRule[] = []): Role {
   let role: Role = CHANNEL_HAND[n.ch] ?? 'R';
   for (const r of rules) {
-    if (r.hand === 'merge' || r.hand === 'slide' || r.hand === 'split' || r.hand === 'join' || !ruleCovers(r, n)) continue;
+    if (r.hand === 'merge' || r.hand === 'tie' || r.hand === 'slide' || r.hand === 'split' || r.hand === 'join' || r.hand === 'keep' || !ruleCovers(r, n)) continue;
     role = r.hand === 'default' ? CHANNEL_HAND[n.ch] ?? 'R' : r.hand;
   }
   return role;
 }
+
+/** Whether the song's edits play a note however short it is. It only escapes the length filter: a removed note stays removed */
+export const isKept = (n: Note, rules: EditRule[] = []) => rules.some((r) => r.hand === 'keep' && ruleCovers(r, n));
 
 /** An echo starting up to this many frames after the note it repeats ends is joined to it */
 export const ECHO_GAP_FRAMES = 15;
@@ -110,10 +114,29 @@ export function splitPoints(r: Pick<EditRule, 'ch' | 'sound' | 'from' | 'to'>, n
 }
 
 /**
- * Applies the song's merge, slide, split and join edits. A merge joins the notes it covers
+ * Joins each run of notes of the same pitch that a `tie` edit covers into one held
+ * note, keeping the first note's sound. A run is notes that follow each other on the
+ * channel, with or without a rest between them; any other pitch, a slide or a
+ * note the edit doesn't cover ends it.
+ */
+function tieRepeats(notes: Note[], r: EditRule): Note[] {
+  const out: Note[] = [];
+  let held: Note | null = null;
+  for (const n of [...notes].sort((a, b) => a.start - b.start)) {
+    if (n.ch !== r.ch) { out.push(n); continue; }
+    if (!ruleCovers(r, n) || n.slideTo !== undefined) { held = null; out.push(n); continue; }
+    if (held && held.midi === n.midi) { held.end = Math.max(held.end, n.end); continue; }
+    held = { ...n };
+    out.push(held);
+  }
+  return out;
+}
+
+/**
+ * Applies the song's merge, tie, slide, split and join edits. A merge joins the notes it covers
  * (such as a vibrato or trill written as many short notes) into one note from the
  * first start to the last end, at the pitch held longest, keeping the first note's
- * sound. A slide joins them the same way into a slide from the first note's pitch
+ * sound. A tie joins only repeats of one pitch (see `tieRepeats`). A slide joins them the same way into a slide from the first note's pitch
  * to the last one's (a run too fast to play note by note, like Ring Man's Pulse 2
  * at 0:17). A split cuts each note held across the start or end of its range
  * there, so a long note (even a merged one) is struck again. These apply in order;
@@ -130,6 +153,7 @@ export function applyMerges(notes: Note[], rules: EditRule[] = []): Note[] {
       });
       continue;
     }
+    if (r.hand === 'tie') { out = tieRepeats(out, r); continue; }
     if (r.hand !== 'merge' && r.hand !== 'slide') continue;
     const group = out.filter((n) => ruleCovers(r, n)).sort((a, b) => a.start - b.start);
     if (group.length < 2) continue;

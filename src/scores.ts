@@ -32,7 +32,7 @@ const CHANNEL_CHARTS: Record<string, PartId> = { p12: 'right', tri: 'lh', all: '
 const RETIRED_CHARTS: Record<string, PartId> = { rh: 'right', rhc: 'right' };
 
 /** Settings forced during score runs so records stay comparable */
-export const SCORE_RUN_RULES = { minNoteFrames: 4, octaveForgiving: false, loop: false } as const;
+export const SCORE_RUN_RULES = { minNoteFrames: 4, octaveForgiving: false, loop: false, ladder: false } as const;
 
 export interface ScoreRecord {
   score: number;

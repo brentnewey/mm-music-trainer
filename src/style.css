@@ -80,6 +80,11 @@ h2 { font: 14px var(--pixel); color: var(--blue); margin: 0 0 16px; line-height:
 .tracks th { text-align: left; font: 9px var(--pixel); color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--panel-edge); }
 .tracks td { padding: 6px 8px; border-bottom: 1px solid #1c2450; }
 .tracks tr:hover td { background: #161e4a; }
+.tracks tr.last-played td { background: #1b2559; }
+.tracks tr.last-played:hover td { background: #222e6b; }
+.tracks tr.last-played td:first-child { box-shadow: inset 3px 0 var(--blue); }
+.last-mark { font: 9px var(--pixel); color: var(--blue); margin-left: 8px; vertical-align: 1px; }
+.game-tabs button.has-last::after { content: ' ●'; color: var(--blue); font-size: 9px; vertical-align: 2px; }
 .tracks .name { cursor: text; }
 .tracks .name input { font: inherit; background: #000a; color: var(--text); border: 1px solid var(--blue); padding: 2px 4px; width: 100%; }
 .tracks .kind { font-size: 12px; color: var(--muted); }

@@ -12,15 +12,18 @@ The music isn't recorded or transcribed. It's generated live by the games' own s
 - **Play by hand:** right hand (both pulses, or one pulse alone as an easier version), left hand (the triangle), or both.
 - **Track editor:** reshape a song's parts into something closer to a piano arrangement. Move a stretch, a sound or a single note to the other hand, or remove percussion and accompaniment you don't want to play.
 - **Practice tools:**
-  - speed 25–100% without changing pitch;
+  - speed 10–100% without changing pitch;
   - **stop mode**, where the song waits at each note until you play it;
   - **sections:** drag across a timeline to practise one passage, once or on repeat;
+  - **speed ladder:** a looped passage speeds itself up as you get it clean and slows back down when you lose it;
   - seamless looping of the game's loop section;
   - octave shift, filtering of very short notes, and a quiet guide for your part.
 - **Score runs:** scored out of 1,000,000 with S–D grades and full combos. A best score is kept for each song, chart, speed and stop-mode setting.
 - **Difficulty ratings (1–10)** for each chart, based on note density, hand jumps and chords.
 - **Suggested fingering:** finger numbers (1 = thumb … 5 = little finger) on every falling note, and on the keys you're about to play.
+- **Out-of-reach notes:** right-hand notes held at the same time more than a minor tenth apart (`MAX_REACH` in `fingering.ts`) turn red, on the highway and in the track editor, so you can find the spots to send one of them to the left hand or remove it.
 - **Accurate sync:** the audio clock accounts for output latency, and the results screen can calibrate your personal timing offset.
+- **Last played** is marked in the song list, with a dot on that game's tab, so you can pick up where you left off.
 - **Track names** you assign are saved to the project. This repo ships names for almost every track in all six games.
 
 ## Requirements
@@ -55,10 +58,11 @@ Pick a game, preview a track with ▶, then click **Play**.
 |---|---|
 | Your part | Right hand, Pulse 1 only, Pulse 2 only, Left hand, or Both hands, with each part's notes, range and difficulty |
 | Section | Drag across the timeline of your part's notes to practise one passage. Edges snap to notes; drag an edge to adjust it or the middle to move it. *Whole song* clears it. The section is remembered per song, and the count-in plays the music just before it |
-| Speed | 25–100% (score runs: 50–100%). The audio is re-rendered, so pitch doesn't change |
+| Speed | 10–100% (score runs: 50–100%). The audio is re-rendered, so pitch doesn't change |
 | Notes | Every note / Normal / Simplified / Long notes only (drops grace notes and arpeggio blips) |
 | Your part in the music | Muted, quiet guide, or full |
 | Loop | With a section, the section repeats, and the music leading into it replays with a 3-2-1 countdown before each pass (silence, for a section at the very start). Otherwise the intro plays once, then the loop section repeats as in the game. Shows per-pass accuracy; Esc → *Finish & see results* to stop |
+| Speed ladder | Needs Loop. Three passes in a row at 90% accuracy or better step up one speed (10, 15, 20, 25, 30, 40, 50 … 100%); three in a row under 90% step back down, until 10%, where it stays. The pass counter shows how the streak stands, the speed changes between passes (the music is re-rendered, so there is a short pause and a fresh 3-2-1 count-in), and the results screen lists every pass by speed. Where the ladder leaves you is the speed the dialog opens with next time |
 | Stop mode | The song stops before each note until you play it. A chord counts only when all its keys are held down together; a key let go early has to be pressed again |
 | Octave shift / any octave | Fits melodies onto smaller keyboards |
 | Show suggested fingering | Finger numbers on notes and upcoming keys (on by default) |
@@ -97,12 +101,14 @@ The right hand plays both pulses (melody and harmony) and the left hand plays th
 
 The channels don't always split the way a pianist would. Needle Man's intro has the bass riff on Pulse 1 under the triangle's melody, and many songs put drum hits or echo effects on a pulse or the triangle. **Edit parts…** in the song dialog opens the track editor:
 
-- **The roll** shows Pulse 1, Pulse 2 and the triangle in their own lanes, with each note coloured by hand: blue right, orange left, grey outline removed. Zoom with − / + / Fit and scroll sideways.
+- **The roll** shows Pulse 1, Pulse 2 and the triangle in their own lanes, with each note coloured by hand: blue right, orange left, grey outline removed, and red where right-hand notes held together are too far apart to reach. Zoom with − / + / Fit and scroll sideways.
 - **Selecting:** drag across the roll for a stretch of the song, or click one note. With nothing selected, an edit covers the whole song.
 - **Channels and sounds:** tick the channels the selection covers. A channel that uses more than one sound (duty cycle and volume, which the drivers set per instrument) shows a chip for each, lettered by how often it's used. Hover a chip to light up its notes; click it to leave that sound out.
 - **Send to** the right hand, the left hand, **Remove** (in no part, though it still plays in the music) or **Usual hand**.
 - **Join echoes** handles a channel that repeats another a moment later, like Flash Man's Pulse 2, which echoes Pulse 1 a fifth of a second behind. Each echo (same pitch, on another channel, starting while the original sounds or up to 0.25 s after it ends) is folded into the original, which is held until the echo ends. Select the echoing channel; it works on a stretch, the whole song or one note. Repeated notes on one channel are never joined.
 - **Merge into one note** joins each channel's selected notes into one held note, from the first note's start to the last one's end, at the pitch held longest. Use it for a vibrato or trill the driver writes as many short notes. It needs a stretch of the song selected, and merging happens before the Notes filter, so a vibrato of short notes isn't dropped as a set of blips.
+- **Merge repeats** is the same idea, but only joins notes that follow each other on a channel at exactly the same pitch, even with a rest between them, so C C D D E becomes C D E. Other notes are left alone. It needs a stretch of the song selected, and only notes starting inside the stretch are joined.
+- **Play short notes** keeps the selected faint notes, which are normally dropped for being too short. They count in score runs and at every Notes setting. Click one note or select a stretch. A removed note stays removed.
 - **Slide** turns each channel's selected notes into one slide from the first note's pitch to the last one's, for a run too fast to play note by note, like the scale down Ring Man's Pulse 2 plays at 0:17. It shows in play as a thick sloping line with an arrow, labelled with the key to start on. Start it on time on a key within two semitones of its first note and it's a hit; after that, keys you press along it (up to two semitones past either end) until it ends are part of the slide, never wrong notes. You don't have to play every key or finish on the last one. Like a merge, it needs a stretch selected and happens before the Notes filter.
 - **Split** cuts each note on the ticked channels that's held across the start or end of the selected stretch, so you strike it again there. Pharoah Man's intro holds one long Pulse 1 note (after a merge) under four Pulse 2 notes: drag from one Pulse 2 note to the next and split, and the held note is re-struck with them. Range edges snap to note starts on any channel, which lines the cut up with the other parts. The selection line counts the notes held across its ends. A split applies in order with the other edits, so it can cut a merged note.
 - **Practise from here ▶** closes the editor and practises the selected stretch (or from the selected note to the end) with the song dialog's part and settings, as if you'd picked that section on the timeline. Stop mode stays as it was in the dialog. Its pause menu and results screen have **Back to editor**, which returns to the editor with the same selection and zoom. The editor also reopens where you left it for each song, until the page reloads. It doesn't change the song dialog: Score run, stop mode and your practice section stay as they were for normal play.

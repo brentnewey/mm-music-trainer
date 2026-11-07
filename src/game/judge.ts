@@ -17,6 +17,8 @@ export interface TargetNote {
   slideTo?: number;
   /** Suggested finger, 1 (thumb) to 5 */
   finger?: number;
+  /** Held with another of the hand's notes too far away to reach (see `markWideReaches`) */
+  wide?: boolean;
   judgment?: Judgment;
   /** played - expected, seconds (negative = early) */
   offset?: number;

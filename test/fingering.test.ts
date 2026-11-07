@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assignFingering } from '../src/song/fingering';
+import { assignFingering, markWideReaches } from '../src/song/fingering';
 import type { TargetNote } from '../src/game/judge';
 
 /** Notes at a steady 4 per second */
@@ -64,5 +64,22 @@ describe('assignFingering', () => {
     const n = seq([64, 66, 68, 69, 71, 73, 75, 76]);
     assignFingering(n);
     for (const x of n) if ([66, 68, 73, 75].includes(x.midi)) expect(x.finger).not.toBe(1);
+  });
+});
+
+describe('markWideReaches', () => {
+  const note = (midi: number, time: number, duration: number, hand?: 'L' | 'R'): TargetNote => ({ midi, time, duration, ch: 0, hand });
+
+  it('marks right-hand notes held together more than a minor tenth apart', () => {
+    // B3 + D#5 is out of reach; C4 + D#5 is the widest allowed
+    const notes = [note(59, 0, 1), note(75, 0.5, 0.2), note(75, 2, 1), note(60, 2, 1)];
+    markWideReaches(notes);
+    expect(notes.map((n) => !!n.wide)).toEqual([true, true, false, false]);
+  });
+
+  it('ignores notes that only follow each other, and the left hand', () => {
+    const notes = [note(48, 0, 0.5), note(72, 0.5, 0.5), note(40, 1, 1, 'L'), note(70, 1, 1, 'L')];
+    markWideReaches(notes);
+    expect(notes.some((n) => n.wide)).toBe(false);
   });
 });

@@ -12,6 +12,7 @@ A browser-based MIDI keyboard trainer for Mega Man 1–6 music. It's TypeScript 
 ## Commands
 
 ```sh
+npm start            # tools/dev.ps1: starts the dev server if :5173 is down, then opens it in Chrome
 npm run dev          # Vite dev server (the user usually has one on :5173)
 npm test             # vitest: unit tests, plus driver integration tests when roms/nsf exists
 npx tsc --noEmit     # type-check (strict, noUnusedLocals)
@@ -31,12 +32,13 @@ npx tsx tools/discover.ts | render.ts | difficulty.ts | fingering.ts | probe.ts 
 | `src/song/discover.ts` | Probes sound IDs to find music tracks |
 | `src/song/analyze.ts` | Turns APU state into notes, detects loops (exact APU-write hash, or fuzzy pitch matching for MM3–6), renders PCM |
 | `src/song/targets.ts` | Notes → timed targets. `buildPart(a, part, opts)` (part = `right`, `p1`, `p2`, `lh` or `both`) selects a hand's notes (`p1`/`p2`: the right hand's notes on one pulse); `partChannels` picks which channels to quieten |
-| `src/song/hands.ts` | `roleOf`: a note's hand by channel (pulses right, triangle left), changed by the song's `EditRule`s (channel, optional sound = `duty:vel`, time range in 100%-speed seconds, hand `R`/`L`/`off`/`default`/`merge`/`slide`/`split`/`join`; later rules win). `applyMerges` cuts notes held across a `split` rule's `from`/`to` (`splitPoints`), joins `merge` rules' notes into one, `slide` rules' notes into one slide (`Note.slideTo`, judged on its start with keys along it allowed: `judge.ts` `inSlide`) and folds `join` rules' cross-channel echoes into the note they repeat (both before the length filter), then `buildTargets` drops `off` notes before merging unisons. Edits come from `track-edits.json` via `TargetOptions.edits`; tools read it with `tools/edits.ts`. Check with `tools/hands.ts` |
+| `src/song/hands.ts` | `roleOf`: a note's hand by channel (pulses right, triangle left), changed by the song's `EditRule`s (channel, optional sound = `duty:vel`, time range in 100%-speed seconds, hand `R`/`L`/`off`/`default`/`merge`/`tie`/`slide`/`split`/`join`/`keep`; later rules win). `applyMerges` cuts notes held across a `split` rule's `from`/`to` (`splitPoints`), joins `merge` rules' notes into one, `tie` rules' repeats of a pitch into one, `slide` rules' notes into one slide (`Note.slideTo`, judged on its start with keys along it allowed: `judge.ts` `inSlide`) and folds `join` rules' cross-channel echoes into the note they repeat (both before the length filter), then `buildTargets` lets `keep` rules' notes (`isKept`) past the length filter and drops `off` notes before merging unisons. Edits come from `track-edits.json` via `TargetOptions.edits`; tools read it with `tools/edits.ts`. Check with `tools/hands.ts` |
 | `src/song/difficulty.ts` | 1–10 difficulty rating from targets (`RATING_SCALE` tunes the curve) |
-| `src/song/fingering.ts` | Suggested fingering: per-hand Viterbi over chord fingerings with a Parncutt-style cost model; sets `TargetNote.finger`. `test/fingering.test.ts` pins textbook scale/arpeggio fingerings, so rerun it when tuning costs |
+| `src/song/fingering.ts` | Suggested fingering: per-hand Viterbi over chord fingerings with a Parncutt-style cost model; sets `TargetNote.finger`. `markWideReaches` sets `TargetNote.wide` (drawn red) on right-hand notes held together more than `MAX_REACH` semitones apart; the editor uses `wideReaches` too. `test/fingering.test.ts` pins textbook scale/arpeggio fingerings, so rerun it when tuning costs |
 | `src/worker/` | Heavy emulation runs in a Web Worker; `SongWorkerClient` is the main-thread API |
 | `src/game/judge.ts` | Hit windows, score (out of 1,000,000), grades, full combo |
-| `src/game/session.ts` | One play session: audio sync, stop mode, loop passes, wake lock |
+| `src/game/session.ts` | One play session: audio sync, stop mode, loop passes, wake lock. `onPass` reports each looped pass's accuracy (only when the pass had notes) |
+| `src/game/ladder.ts` | Speed ladder: `SpeedLadder.record` turns per-pass accuracies into speed steps along `PRACTICE_SPEEDS` (rules in `LADDER`: 3 passes at 90%+ up, 3 under it down). Changing speed means re-rendering the music, so `main.ts` steps by restarting the session; the ladder instance lives across those restarts |
 | `src/game/highway.ts` | Canvas renderer for falling notes and keyboard (note names, finger badges, upcoming-key fingers) |
 | `src/audio/engine.ts` | Web Audio playback; `position()` is the heard-time clock (`getOutputTimestamp`) |
 | `src/input/midi.ts` | Web MIDI input, plus a computer-keyboard fallback |
@@ -45,7 +47,7 @@ npx tsx tools/discover.ts | render.ts | difficulty.ts | fingering.ts | probe.ts 
 | `src/trackEditor.ts` | Track editor dialog: per-channel piano roll coloured by role, range/note selection, channel and sound filters, listen, edit list. Saves through `EditorContext.save` (main.ts writes `track-edits.json` and clears `partCache`) |
 | `src/sectionPicker.ts` | Song-dialog timeline for choosing a practice section (100%-speed seconds, snapped to note onsets, remembered per song in localStorage `practiceSection`) |
 | `src/stages.ts` | Stage-theme sound IDs per game, for the song list's *Stages only* filter |
-| `src/main.ts` | Boot, library screen (score filter bar, difficulty, records), song dialog (Practice / Score run), results |
+| `src/main.ts` | Boot, library screen (score filter bar, difficulty, records, `lastPlayed` marker on the row and game tab), song dialog (Practice / Score run), results |
 
 ## Domain facts worth knowing
 

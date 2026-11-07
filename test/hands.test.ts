@@ -63,6 +63,33 @@ describe('applyMerges', () => {
     expect(out).toEqual([{ ch: 0, midi: 72, start: 600, end: 612, vel: 8, duty: 1 }, after]);
   });
 
+  it('keeps marked short notes through the length filter, but not removed ones', () => {
+    const blip = (midi: number, start: number): Note => ({ ch: 0, midi, start, end: start + 2, vel: 8, duty: 1 });
+    const a: SongAnalysis = { id: 0, loopStart: -1, endFrame: 1000, notes: [blip(60, 100), blip(62, 200), blip(64, 300)] };
+    const opts = { minFrames: 14, speed: 1, octaveShift: 0 };
+    const keep = (f: number): EditRule => ({ ch: 0, from: t(f) - 0.004, to: t(f) + 0.004, hand: 'keep' });
+    const edits: EditRule[] = [keep(100), keep(300), { ch: 0, from: t(299), to: t(301), hand: 'off' }];
+    expect(buildTargets(a, [0], opts).length).toBe(0);
+    expect(buildTargets(a, [0], { ...opts, edits }).map((n) => [n.midi, n.hand])).toEqual([[60, 'R']]);
+    expect(roleOf(a.notes[0], [keep(100)])).toBe('R');
+  });
+
+  it('ties only repeats of a pitch, across rests, within the range and channel', () => {
+    const n = (ch: number, midi: number, start: number, end: number, duty = 1): Note => ({ ch, midi, start, end, vel: 8, duty });
+    const line = [n(0, 60, 0, 10), n(0, 60, 10, 20), n(0, 62, 20, 30), n(0, 60, 30, 40), n(0, 60, 50, 60), n(0, 60, 100, 110)];
+    const other = n(1, 60, 5, 15);
+    const out = applyMerges([...line, other], [{ ch: 0, from: t(0), to: t(90), hand: 'tie' }]);
+    expect(out.filter((x) => x.ch === 0).map((x) => [x.midi, x.start, x.end])).toEqual([[60, 0, 20], [62, 20, 30], [60, 30, 60], [60, 100, 110]]);
+    expect(out).toContainEqual(other);
+    expect(line[0].end).toBe(10);
+  });
+
+  it('does not tie across a note of another sound the edit leaves out', () => {
+    const n = (midi: number, start: number, duty: number): Note => ({ ch: 0, midi, start, end: start + 10, vel: 8, duty });
+    const out = applyMerges([n(60, 0, 1), n(64, 10, 2), n(60, 20, 1)], [{ ch: 0, sound: '1:8', hand: 'tie' }]);
+    expect(out.length).toBe(3);
+  });
+
   it('keeps the merged note through the length filter, and lets hand edits apply to it', () => {
     const a: SongAnalysis = { id: 0, loopStart: -1, endFrame: 1000, notes: [...vibrato, after] };
     const edits: EditRule[] = [{ ch: 0, from: t(599), to: t(650), hand: 'merge' }, { ch: 0, from: t(599), to: t(650), hand: 'L' }];

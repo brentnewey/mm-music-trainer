@@ -72,6 +72,8 @@ export interface Settings {
   waitMode: boolean;
   /** Keep repeating the song's loop section until you finish */
   loop: boolean;
+  /** Practice ladder: looped passes at 90%+ move up a speed, poor ones move back down */
+  ladder: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -87,6 +89,7 @@ export const DEFAULT_SETTINGS: Settings = {
   octaveShift: 0,
   waitMode: false,
   loop: false,
+  ladder: false,
 };
 
 export const getSettings = () => loadJson<Settings>('settings', DEFAULT_SETTINGS);

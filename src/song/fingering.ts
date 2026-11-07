@@ -195,3 +195,31 @@ export function assignFingering(notes: TargetNote[]) {
   fingerHand(handEvents(notes.filter((n) => !isLeft(n)), false));
   fingerHand(handEvents(notes.filter(isLeft), true));
 }
+
+/** The widest one hand can span, in semitones from the lowest key to the highest: a minor tenth (C to the Eb above the octave) */
+export const MAX_REACH = 15;
+
+/**
+ * The notes held at the same time as another note more than MAX_REACH away, so
+ * one hand can't play them both (slides and notes that only touch end to start don't count).
+ */
+export function wideReaches<T extends { time: number; duration: number; midi: number }>(notes: T[]): Set<T> {
+  const wide = new Set<T>();
+  const sorted = [...notes].sort((a, b) => a.time - b.time);
+  let held: T[] = [];
+  for (const n of sorted) {
+    held = held.filter((h) => h.time + h.duration > n.time + 1e-3);
+    for (const h of held) {
+      if (Math.abs(h.midi - n.midi) > MAX_REACH) { wide.add(h); wide.add(n); }
+    }
+    held.push(n);
+  }
+  return wide;
+}
+
+/** Sets `wide` on the right hand's notes that are out of reach of a note held with them */
+export function markWideReaches(notes: TargetNote[]) {
+  for (const n of notes) delete n.wide;
+  const right = notes.filter((n) => n.slideTo === undefined && (n.hand ?? (n.ch === 2 ? 'L' : 'R')) === 'R');
+  for (const n of wideReaches(right)) n.wide = true;
+}

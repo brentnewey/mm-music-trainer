@@ -7,10 +7,11 @@
 // note can be split where a stretch starts and ends, to strike it again, and echoes
 // on another channel can be joined to the notes they repeat.
 import type { AudioEngine } from './audio/engine';
-import { noteName } from './game/highway';
+import { WIDE_COLOR, noteName } from './game/highway';
 import { formatClock } from './sectionPicker';
 import { FRAME_SECONDS, type Note, type SongAnalysis } from './song/analyze';
-import { CHANNEL_HAND, applyMerges, roleOf, ruleCovers, soundOf, splitPoints, type EditRule, type Role } from './song/hands';
+import { wideReaches } from './song/fingering';
+import { CHANNEL_HAND, applyMerges, isKept, roleOf, ruleCovers, soundOf, splitPoints, type EditRule, type Role } from './song/hands';
 
 export interface EditorContext {
   title: string;
@@ -44,14 +45,14 @@ export interface EditorView {
   redo?: EditRule[][];
 }
 
-interface EdNote { n: Note; t: number; d: number; sound: string; role: Role }
+interface EdNote { n: Note; t: number; d: number; sound: string; role: Role; kept: boolean }
 interface Sound { key: string; letter: string; label: string; count: number }
 
 const CHANNELS = ['Pulse 1', 'Pulse 2', 'Triangle'];
 /** Removed notes are drawn as outlines */
 const ROLE_COLORS: Record<Role, string> = { R: '#3cbcfc', L: '#fca044', off: '#8890b8' };
 type Action = EditRule['hand'];
-const ROLE_NAMES: Record<Action, string> = { R: 'right hand', L: 'left hand', off: 'removed', default: 'usual hand', merge: 'merged into one note', slide: 'made a slide', split: 'split', join: 'echoes joined to the notes they repeat' };
+const ROLE_NAMES: Record<Action, string> = { R: 'right hand', L: 'left hand', off: 'removed', default: 'usual hand', merge: 'merged into one note', tie: 'repeated notes merged', slide: 'made a slide', split: 'split', join: 'echoes joined to the notes they repeat', keep: 'played even if short' };
 const DUTY = ['12.5%', '25%', '50%', '75%'];
 const AXIS_H = 18;
 const LANE_H = 112;
@@ -66,7 +67,7 @@ const SCORE_MIN_FRAMES = 4;
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const r3 = (t: number) => Math.round(t * 1000) / 1000;
 /** Whether a note is long enough to show in play (score runs leave out shorter ones) */
-const playable = (e: EdNote) => e.n.end - e.n.start >= SCORE_MIN_FRAMES;
+const playable = (e: EdNote) => e.kept || e.n.end - e.n.start >= SCORE_MIN_FRAMES;
 
 /**
  * How the editor was left, to reopen it there, and whether to practise a stretch of
@@ -88,6 +89,8 @@ class TrackEditor {
   private raw: Note[];
   /** Notes after the edits' merges, with their roles */
   private notes: EdNote[] = [];
+  /** Right-hand notes held with another too far away to reach */
+  private wide = new Set<EdNote>();
   private onsets: number[] = [];
   private sounds: Sound[][];
   private duration: number;
@@ -204,9 +207,12 @@ class TrackEditor {
   private applyEdits() {
     const end = this.ctx.analysis.endFrame;
     this.notes = applyMerges(this.raw, this.edits).map((n) => ({
-      n, t: n.start * FRAME_SECONDS, d: (Math.min(n.end, end) - n.start) * FRAME_SECONDS, sound: soundOf(n), role: roleOf(n, this.edits),
+      n, t: n.start * FRAME_SECONDS, d: (Math.min(n.end, end) - n.start) * FRAME_SECONDS, sound: soundOf(n), role: roleOf(n, this.edits), kept: isKept(n, this.edits),
     }));
     this.onsets = [...new Set(this.notes.map((e) => e.t))].sort((x, y) => x - y);
+    const right = this.notes.filter((e) => e.role === 'R' && playable(e) && e.n.slideTo === undefined);
+    const wide = wideReaches(right.map((e) => ({ e, time: e.t, duration: e.d, midi: e.n.midi })));
+    this.wide = new Set([...wide].map((w) => w.e));
     // A picked note may have been merged away or replaced
     const p = this.picked;
     this.picked = p && (this.notes.find((e) => e.n.ch === p.n.ch && e.n.start === p.n.start) ?? null);
@@ -274,8 +280,8 @@ class TrackEditor {
 
   /** Adds edits sending the selection to a hand, removing it, merging it or splitting notes at its ends */
   private assign(role: Action) {
-    const joins = role === 'merge' || role === 'slide';
-    const sel = role === 'split' ? this.toSplit() : this.selected();
+    const joins = role === 'merge' || role === 'tie' || role === 'slide';
+    const sel = role === 'split' ? this.toSplit() : role === 'keep' ? this.selected().filter((e) => !playable(e)) : this.selected();
     if (!sel.length || (joins && !this.canMerge(sel))) return;
     const added: EditRule[] = [];
     if (this.picked) {
@@ -360,7 +366,7 @@ class TrackEditor {
     }
     for (const b of document.querySelectorAll<HTMLButtonElement>('#edit-actions [data-role]')) {
       const role = b.dataset.role;
-      b.disabled = role === 'merge' || role === 'slide' ? !this.canMerge(sel) : role === 'split' ? !this.toSplit().length : !sel.length;
+      b.disabled = role === 'merge' || role === 'tie' || role === 'slide' ? !this.canMerge(sel) : role === 'split' ? !this.toSplit().length : role === 'keep' ? sel.every(playable) : !sel.length;
     }
 
     // Edits so far, newest last
@@ -386,7 +392,9 @@ class TrackEditor {
     // What score runs will play
     const counts: Record<Role, number> = { R: 0, L: 0, off: 0 };
     for (const e of this.notes) if (playable(e)) counts[e.role]++;
-    $('edit-summary').innerHTML = `<span style="color:${ROLE_COLORS.R}">■</span> Right hand ${counts.R} · <span style="color:${ROLE_COLORS.L}">■</span> Left hand ${counts.L} · <span class="removed">□</span> Removed ${counts.off} <small>(notes in a score run)</small>`;
+    $('edit-summary').innerHTML = `<span style="color:${ROLE_COLORS.R}">■</span> Right hand ${counts.R} · <span style="color:${ROLE_COLORS.L}">■</span> Left hand ${counts.L} · <span class="removed">□</span> Removed ${counts.off}`
+      + (this.wide.size ? ` · <span style="color:${WIDE_COLOR}" title="Right-hand notes held together more than a minor tenth apart, too far for one hand">■</span> Out of reach ${this.wide.size}` : '')
+      + ' <small>(notes in a score run)</small>';
   }
 
   private describeRule(r: EditRule) {
@@ -549,7 +557,7 @@ class TrackEditor {
       if (e.t + e.d < t0 || e.t > t1) continue;
       const l = this.lanes[e.n.ch];
       const [nx, ny, nw] = [x(e.t), l.y(e.n.midi), Math.max(2, e.d * this.pps - 1)];
-      const color = this.highlight?.(e) ? '#ffffff' : ROLE_COLORS[e.role];
+      const color = this.highlight?.(e) ? '#ffffff' : this.wide.has(e) ? WIDE_COLOR : ROLE_COLORS[e.role];
       g.globalAlpha = (!sel || sel.has(e) ? 1 : 0.5) * (playable(e) ? 1 : 0.35);
       if (e.n.slideTo !== undefined) {
         // A slide: a sloping line from its first pitch to its last, dashed where removed

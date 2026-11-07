@@ -1,7 +1,7 @@
 import type { Note, SongAnalysis } from './analyze';
 import { FRAME_SECONDS } from './analyze';
 import type { TargetNote } from '../game/judge';
-import { applyMerges, roleOf, type EditRule, type Hand } from './hands';
+import { applyMerges, isKept, roleOf, type EditRule, type Hand } from './hands';
 
 export interface TargetOptions {
   minFrames: number;
@@ -23,7 +23,7 @@ export function buildTargets(a: SongAnalysis, channels: number[], opts: TargetOp
   const scale = FRAME_SECONDS / opts.speed;
   // Merge first, so a vibrato of short notes survives the length filter as one note
   const picked = applyMerges(a.notes, opts.edits)
-    .filter((n) => channels.includes(n.ch) && n.end - n.start >= opts.minFrames && n.start < a.endFrame)
+    .filter((n) => channels.includes(n.ch) && (n.end - n.start >= opts.minFrames || isKept(n, opts.edits)) && n.start < a.endFrame)
     .map((n) => ({ n, role: roleOf(n, opts.edits) }))
     .filter((p): p is { n: Note; role: Hand } => p.role !== 'off')
     .sort((x, y) => x.n.start - y.n.start || x.n.ch - y.n.ch);

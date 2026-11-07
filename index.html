@@ -91,6 +91,7 @@
         <div class="grid">
           <label>Speed
             <select name="speed">
+              <option value="0.1" class="practice-only">10%</option><option value="0.15" class="practice-only">15%</option><option value="0.2" class="practice-only">20%</option>
               <option value="0.25" class="practice-only">25%</option><option value="0.3" class="practice-only">30%</option>
               <option value="0.4" class="practice-only">40%</option><option value="0.5">50%</option><option value="0.6">60%</option><option value="0.7">70%</option>
               <option value="0.8">80%</option><option value="0.9">90%</option><option value="1">100%</option>
@@ -124,6 +125,7 @@
         </div>
         <div class="checks">
           <label><input type="checkbox" name="loop" /> Loop (keep repeating the song, or the section, until you choose Finish)</label>
+          <label><input type="checkbox" name="ladder" /> Speed ladder (3 looped passes at 90%+ step up a speed, 3 under it step back down)</label>
           <label><input type="checkbox" name="waitMode" /> Stop mode (song stops before each note until you play it)</label>
           <label><input type="checkbox" name="octaveForgiving" /> Accept any octave</label>
           <label><input type="checkbox" name="showNoteNames" /> Show note names</label>
@@ -165,8 +167,10 @@
           <span class="hint">or</span>
           <button type="button" class="btn small" data-role="join" title="Fold each note on the selected channels that repeats a note of the same pitch on another channel (an echo, still sounding or just ended) into that note, held until the echo ends. Works on a stretch, the whole song or one note">Join echoes</button>
           <button type="button" class="btn small" data-role="merge" title="Join each channel's selected notes (a vibrato or trill written as many short notes) into one held note at the pitch held longest. Select a stretch of the song first">Merge into one note</button>
+          <button type="button" class="btn small" data-role="tie" title="On each channel, join selected notes that follow each other at exactly the same pitch into one held note. Notes of other pitches stay as they are. Select a stretch of the song first">Merge repeats</button>
           <button type="button" class="btn small" data-role="slide" title="Turn each channel's selected notes (a run too fast to play note by note) into one slide from the first note's pitch to the last's: start it on time near its first key, then sweep along the keys. Select a stretch of the song first">Slide</button>
           <button type="button" class="btn small" data-role="split" title="Cut each note on the selected channels that's held across the start or end of the selected stretch, so you strike it again there. Drag from where the first new note should start to where the next should (edges snap to note starts on any channel)">Split</button>
+          <button type="button" class="btn small" data-role="keep" title="Play the selected short notes (the faint ones), which are normally dropped for being too short. Click one note or select a stretch. A removed note stays removed">Play short notes</button>
         </div>
       </fieldset>
       <fieldset>

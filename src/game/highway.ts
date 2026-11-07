@@ -8,7 +8,9 @@ export const isBlack = (m: number) => BLACK.has(((m % 12) + 12) % 12);
 
 // Notes are coloured by the hand that plays them
 export const HAND_COLORS = { R: '#3cbcfc', L: '#fca044' };
-const noteColor = (n: TargetNote) => HAND_COLORS[n.hand ?? (n.ch === 2 ? 'L' : 'R')];
+/** Notes held together too far apart for one hand to reach */
+export const WIDE_COLOR = '#f83800';
+const noteColor = (n: TargetNote) => (n.wide ? WIDE_COLOR : HAND_COLORS[n.hand ?? (n.ch === 2 ? 'L' : 'R')]);
 const JUDGE_COLORS: Record<Judgment, string> = { perfect: '#80f0ff', great: '#58f898', good: '#f8d878', miss: '#f85858' };
 
 interface Popup { text: string; color: string; x: number; born: number }

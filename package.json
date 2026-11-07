@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "start": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev.ps1",
     "extract": "tsx tools/extract.ts",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

@@ -35,6 +35,8 @@ const LOOP_QUEUE_AHEAD = 15;
 
 export class Session {
   readonly judge: Judge;
+  /** Called with each finished pass's accuracy (looping runs only); see SpeedLadder */
+  onPass: ((accuracy: number, pass: number) => void) | null = null;
   private highway: Highway;
   private raf = 0;
   private unsub: (() => void)[] = [];
@@ -108,7 +110,16 @@ export class Session {
       const prev = this.passAccuracies[k - 2];
       const trend = prev === undefined ? '' : acc > prev + 0.005 ? ' ▲' : acc < prev - 0.005 ? ' ▼' : '';
       this.passBanner = { text: `Pass ${k}: ${(acc * 100).toFixed(1)}%${trend}`, until: wall + 3 };
+      // A pass with nothing to play says nothing about how it went (a silent section),
+      // so it is not reported. The handler may end this session (a speed ladder
+      // re-renders the music), so nothing in this frame may touch the loop state after it
+      if (passNotes.length) this.onPass?.(acc, k);
     }
+  }
+
+  /** Shows a message where the per-pass accuracy appears. */
+  banner(text: string, seconds = 4) {
+    this.passBanner = { text, until: performance.now() / 1000 + seconds };
   }
 
   /** Ends a looping (or any) run and shows results. */
