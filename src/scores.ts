@@ -1,5 +1,5 @@
 // Score-run records: best result per song × chart × speed × stop mode.
-import type { JudgeStats, Judgment, Summary } from './game/judge';
+import { accuracyOf, type JudgeStats, type Judgment, type Summary } from './game/judge';
 import { loadJson, saveJson, saveToProjectFile } from './storage';
 import type { PartId } from './song/targets';
 
@@ -47,6 +47,20 @@ export interface ScoreRecord {
   plays: number;
   /** Set when the record was carried over from a channel chart (e.g. 'p1') */
   migratedFrom?: string;
+}
+
+/**
+ * A record's accuracy as notes hit over its notes. Records set before accuracy
+ * stopped counting timing stored a timing-weighted figure, so it's recomputed from
+ * the judgment counts (which give the note total); records with no counts — only
+ * the oldest imports — keep what they stored.
+ */
+export function recordAccuracy(rec: ScoreRecord): number {
+  const total = rec.counts.perfect + rec.counts.great + rec.counts.good + rec.counts.miss;
+  if (!total) return rec.accuracy;
+  return accuracyOf({
+    total, counts: rec.counts, wrong: rec.wrong, combo: 0, maxCombo: rec.maxCombo, score: rec.score, offsets: [],
+  });
 }
 
 export interface ScoreKey { game: string; id: number; chart: string; speed: number; stop: boolean }

@@ -2,7 +2,7 @@
 import type { AudioEngine } from '../audio/engine';
 import type { NoteInput, NoteEvent } from '../input/midi';
 import { Highway, noteName } from './highway';
-import { Judge, POINTS, WINDOWS, summarize, type TargetNote, type JudgeStats, type Summary } from './judge';
+import { Judge, WINDOWS, summarize, type TargetNote, type JudgeStats, type Summary } from './judge';
 import type { Settings } from '../storage';
 import { keepScreenAwake } from '../wakeLock';
 
@@ -104,8 +104,8 @@ export class Session {
     if (songTime > this.passEnd(k) + 0.3) {
       const from = k === 1 ? -Infinity : this.passEnd(k - 1);
       const passNotes = this.notes.filter((n) => n.time >= from && n.time < this.passEnd(k));
-      const points = passNotes.reduce((sum, n) => sum + (n.judgment ? POINTS[n.judgment] : 0), 0);
-      const acc = passNotes.length ? points / (100 * passNotes.length) : 1;
+      const hit = passNotes.filter((n) => n.judgment && n.judgment !== 'miss').length;
+      const acc = passNotes.length ? hit / passNotes.length : 1;
       this.passAccuracies.push(acc);
       const prev = this.passAccuracies[k - 2];
       const trend = prev === undefined ? '' : acc > prev + 0.005 ? ' ▲' : acc < prev - 0.005 ? ' ▼' : '';

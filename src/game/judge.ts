@@ -179,7 +179,10 @@ export class Judge {
 }
 
 export interface Summary {
+  /** Notes hit, over the total; what the game shows and records */
   accuracy: number;
+  /** Timing points earned over the maximum; the score's accuracy half */
+  timing: number;
   grade: string;
   meanOffsetMs: number;
   /** Every note hit and no wrong notes */
@@ -188,24 +191,40 @@ export interface Summary {
 
 export const MAX_SCORE = 1_000_000;
 
-/** Timing points earned so far over the song's maximum, minus a wrong-note penalty. */
-function accuracyOf(s: JudgeStats): number {
-  const total = Math.max(1, s.total);
-  const points = (Object.keys(s.counts) as Judgment[]).reduce((sum, j) => sum + POINTS[j] * s.counts[j], 0);
-  return Math.max(0, points / (100 * total) - (0.5 * s.wrong) / total);
+/** The wrong-note penalty as a fraction of the song: half a note per wrong press. */
+function penalty(s: JudgeStats): number {
+  return (0.5 * s.wrong) / Math.max(1, s.total);
 }
 
-/** Score out of 1,000,000: 90% accuracy, 10% max combo. Rises as you play. */
+/**
+ * Notes hit over the song's total, minus a wrong-note penalty. How late or early a
+ * note was doesn't matter here: a hit is a hit (timing lives in the score instead,
+ * through `timingOf`), because a long note's sound dies away on a real piano long
+ * before its window is over, especially at slow speeds.
+ */
+export function accuracyOf(s: JudgeStats): number {
+  const hits = s.counts.perfect + s.counts.great + s.counts.good;
+  return Math.max(0, hits / Math.max(1, s.total) - penalty(s));
+}
+
+/** Timing points earned so far over the song's maximum, minus a wrong-note penalty. */
+function timingOf(s: JudgeStats): number {
+  const points = (Object.keys(s.counts) as Judgment[]).reduce((sum, j) => sum + POINTS[j] * s.counts[j], 0);
+  return Math.max(0, points / (100 * Math.max(1, s.total)) - penalty(s));
+}
+
+/** Score out of 1,000,000: 90% timing, 10% max combo. Rises as you play. */
 export function computeScore(s: JudgeStats): number {
   const total = Math.max(1, s.total);
-  return Math.round(MAX_SCORE * (0.9 * accuracyOf(s) + 0.1 * (s.maxCombo / total)));
+  return Math.round(MAX_SCORE * (0.9 * timingOf(s) + 0.1 * (s.maxCombo / total)));
 }
 
-/** Accuracy from timing points, penalised by wrong notes; graded S-D. */
+/** Accuracy from notes hit, penalised by wrong notes; graded S-D. */
 export function summarize(s: JudgeStats): Summary {
   const accuracy = accuracyOf(s);
+  const timing = timingOf(s);
   const grade = accuracy >= 0.95 ? 'S' : accuracy >= 0.9 ? 'A' : accuracy >= 0.8 ? 'B' : accuracy >= 0.7 ? 'C' : 'D';
   const meanOffsetMs = s.offsets.length ? (1000 * s.offsets.reduce((a, b) => a + b, 0)) / s.offsets.length : 0;
   const fullCombo = s.total > 0 && s.counts.miss === 0 && s.wrong === 0 && s.maxCombo === s.total;
-  return { accuracy, grade, meanOffsetMs, fullCombo };
+  return { accuracy, timing, grade, meanOffsetMs, fullCombo };
 }

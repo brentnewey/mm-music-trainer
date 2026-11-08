@@ -20,7 +20,7 @@ import {
   getTrackEdits, saveTrackEdits, trackKey, syncProjectFiles, type Settings,
 } from './storage';
 import {
-  CHARTS, SCORE_RUN_RULES, bestFor, describeView, getScoreView, migrateChannelCharts, migrateLegacyBests, recordRun, saveScoreView,
+  CHARTS, SCORE_RUN_RULES, bestFor, describeView, getScoreView, migrateChannelCharts, migrateLegacyBests, recordAccuracy, recordRun, saveScoreView,
   type Chart, type ScoreKey,
 } from './scores';
 
@@ -283,7 +283,7 @@ function renderTrackList() {
     const diff = a ? `<td>${difficultyBadge(chartDifficulty(currentGame.id, a, chart, view.speed))}</td>` : '<td>…</td>';
     if (rec) { played++; if (rec.fullCombo) fullCombos++; }
     const best = rec
-      ? `<td class="best" title="${rec.plays} play${rec.plays === 1 ? '' : 's'} · set ${new Date(rec.date).toLocaleDateString()}"><span class="${gradeClass(rec.grade)}"><span class="grade-cell">${rec.grade}</span> ${rec.score.toLocaleString()}</span>${rec.fullCombo ? ' <span class="fc">★FC</span>' : ''}<span class="acc">${(rec.accuracy * 100).toFixed(1)}%</span></td>`
+      ? `<td class="best" title="${rec.plays} play${rec.plays === 1 ? '' : 's'} · set ${new Date(rec.date).toLocaleDateString()}"><span class="${gradeClass(rec.grade)}"><span class="grade-cell">${rec.grade}</span> ${rec.score.toLocaleString()}</span>${rec.fullCombo ? ' <span class="fc">★FC</span>' : ''}<span class="acc">${(recordAccuracy(rec) * 100).toFixed(1)}%</span></td>`
       : '<td class="best none">—</td>';
     const tr = document.createElement('tr');
     tr.innerHTML = `
@@ -411,7 +411,7 @@ async function openSongDialog(t: DiscoveredTrack, title: string, detour?: Editor
     const rec = bestFor(k);
     const desc = `${chart.label} · ${Math.round(k.speed * 100)}%${k.stop ? ' · stop mode' : ''}`;
     $('score-best').innerHTML = rec
-      ? `Best (${escapeHtml(desc)}): <b class="${gradeClass(rec.grade)}">${rec.score.toLocaleString()} ${rec.grade}</b> · ${(rec.accuracy * 100).toFixed(1)}%${rec.fullCombo ? ' <span class="fc">FULL COMBO</span>' : ''} · ${rec.plays} play${rec.plays === 1 ? '' : 's'}`
+      ? `Best (${escapeHtml(desc)}): <b class="${gradeClass(rec.grade)}">${rec.score.toLocaleString()} ${rec.grade}</b> · ${(recordAccuracy(rec) * 100).toFixed(1)}%${rec.fullCombo ? ' <span class="fc">FULL COMBO</span>' : ''} · ${rec.plays} play${rec.plays === 1 ? '' : 's'}`
       : `No record yet for ${escapeHtml(desc)}.`;
   };
   // Practice section: drawn from the chosen part at 100% speed, kept per song
@@ -744,6 +744,7 @@ function showResults(r: SessionResult, settings: Settings, scoreRun: ScoreRun) {
     ${banner}
     <table>
       <tr><td>Accuracy</td><td>${(summary.accuracy * 100).toFixed(1)}%</td></tr>
+      ${settings.waitMode ? '' : `<tr><td>Timing</td><td>${(summary.timing * 100).toFixed(1)}%</td></tr>`}
       <tr><td>Score</td><td>${stats.score.toLocaleString()}</td></tr>
       <tr><td>Max combo</td><td>${stats.maxCombo}</td></tr>
       <tr><td style="color:#80f0ff">Perfect</td><td>${stats.counts.perfect}</td></tr>

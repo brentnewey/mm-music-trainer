@@ -51,6 +51,17 @@ describe('Judge', () => {
     expect(j.stats.score).toBe(Math.round(1e6 * (0.9 * 0.75 + 0.1)));
   });
 
+  it('counts a late hit in full for accuracy, but not for the score', () => {
+    const j = new Judge([note(60, 1), note(62, 2)], { octaveForgiving: false });
+    j.noteOn(60, 1); j.noteOn(62, 2.14);
+    const { accuracy, timing } = summarize(j.stats);
+    expect(accuracy).toBe(1);
+    expect(j.stats.counts.good).toBe(1);
+    // timing: (100 + 40) / 200
+    expect(timing).toBeCloseTo(0.7);
+    expect(j.stats.score).toBe(Math.round(1e6 * (0.9 * 0.7 + 0.1)));
+  });
+
   it('weights max combo into the score', () => {
     const notes = [1, 2, 3, 4].map((t) => note(60, t));
     const j = new Judge(notes, { octaveForgiving: false });
