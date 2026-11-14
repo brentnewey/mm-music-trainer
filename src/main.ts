@@ -20,7 +20,7 @@ import {
   getTrackEdits, saveTrackEdits, trackKey, syncProjectFiles, type Settings,
 } from './storage';
 import {
-  CHARTS, SCORE_RUN_RULES, bestFor, describeView, getScoreView, migrateChannelCharts, migrateLegacyBests, recordAccuracy, recordRun, saveScoreView,
+  CHARTS, SCORE_RUN_RULES, bestFor, describeView, getScoreView, migrateChannelCharts, migrateGrades, migrateLegacyBests, recordAccuracy, recordRun, saveScoreView,
   type Chart, type ScoreKey,
 } from './scores';
 
@@ -43,6 +43,7 @@ async function boot() {
   await Promise.all([input.init(), syncProjectFiles()]);
   migrateLegacyBests();
   migrateChannelCharts();
+  migrateGrades();
   renderMidiStatus();
   input.onDevicesChanged(renderMidiStatus);
   input.onRawMidi(showMidiActivity);
@@ -732,8 +733,8 @@ function showResults(r: SessionResult, settings: Settings, scoreRun: ScoreRun) {
     const k = scoreRun.key;
     const desc = `${scoreRun.chart.label} · ${Math.round(k.speed * 100)}%${k.stop ? ' · stop mode' : ''}`;
     banner = isBest
-      ? `<div class="new-best">NEW BEST! ${escapeHtml(desc)}${previous ? `<br><small>previous ${previous.score.toLocaleString()}</small>` : ''}</div>`
-      : `<div class="calib">${escapeHtml(desc)} · best <span class="${gradeClass(previous!.grade)}">${previous!.score.toLocaleString()} (${previous!.grade})</span></div>`;
+      ? `<div class="new-best">NEW BEST! ${escapeHtml(desc)}${previous ? `<br><small>previous ${previous.grade} ${(recordAccuracy(previous) * 100).toFixed(1)}% · ${previous.score.toLocaleString()}</small>` : ''}</div>`
+      : `<div class="calib">${escapeHtml(desc)} · best <span class="${gradeClass(previous!.grade)}">${previous!.grade} ${(recordAccuracy(previous!) * 100).toFixed(1)}%</span> · ${previous!.score.toLocaleString()}</div>`;
   }
   $('res-grade').textContent = summary.grade;
   $('res-grade').className = `grade ${gradeClass(summary.grade)}`;

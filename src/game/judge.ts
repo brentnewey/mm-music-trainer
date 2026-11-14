@@ -219,11 +219,16 @@ export function computeScore(s: JudgeStats): number {
   return Math.round(MAX_SCORE * (0.9 * timingOf(s) + 0.1 * (s.maxCombo / total)));
 }
 
+/** The grade an accuracy earns: S is near-perfect, then A-D. */
+export function gradeOf(accuracy: number): string {
+  return accuracy >= 0.99 ? 'S' : accuracy >= 0.9 ? 'A' : accuracy >= 0.8 ? 'B' : accuracy >= 0.7 ? 'C' : 'D';
+}
+
 /** Accuracy from notes hit, penalised by wrong notes; graded S-D. */
 export function summarize(s: JudgeStats): Summary {
   const accuracy = accuracyOf(s);
   const timing = timingOf(s);
-  const grade = accuracy >= 0.95 ? 'S' : accuracy >= 0.9 ? 'A' : accuracy >= 0.8 ? 'B' : accuracy >= 0.7 ? 'C' : 'D';
+  const grade = gradeOf(accuracy);
   const meanOffsetMs = s.offsets.length ? (1000 * s.offsets.reduce((a, b) => a + b, 0)) / s.offsets.length : 0;
   const fullCombo = s.total > 0 && s.counts.miss === 0 && s.wrong === 0 && s.maxCombo === s.total;
   return { accuracy, timing, grade, meanOffsetMs, fullCombo };

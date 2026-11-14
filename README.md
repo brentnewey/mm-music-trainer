@@ -73,10 +73,10 @@ Pick a game, preview a track with ▶, then click **Play**.
 Switch the dialog to **Score run** to play for a record.
 
 - **Parts:** Right hand, Pulse 1 only, Pulse 2 only, Left hand, or Both hands.
-- **Records:** one best per **song × part × speed × stop mode**.
+- **Records:** one best per **song × part × speed × stop mode**. The best is the run with the highest accuracy, with the score breaking ties — so a cleaner run takes the record even when its timing, and so its score, came out lower than the old one's.
 - **Accuracy (the recorded percentage):** notes hit over the part's notes, minus half a note per wrong press. A hit counts in full however late or early it was, since a held note's sound dies away on the piano well before its window closes — timing shows up in the score instead.
 - **Score (out of 1,000,000):** 90% comes from timing (Perfect 100 / Great 70 / Good 40 per note, minus half a note per wrong press) and 10% from max combo. The results screen shows that timing percentage under the accuracy.
-- **Grades:** from accuracy — S ≥ 95%, A ≥ 90%, B ≥ 80%, C ≥ 70%, otherwise D. Every note hit with no wrong presses is a ★ full combo.
+- **Grades:** from accuracy — S ≥ 99%, A ≥ 90%, B ≥ 80%, C ≥ 70%, otherwise D. Every note hit with no wrong presses is a ★ full combo.
 - **Fixed rules:** Normal notes, exact octaves and no loop, so records stay comparable.
 - **Stop mode:** timing isn't judged, so the score reflects correct notes and wrong presses.
 

@@ -1,5 +1,5 @@
 // Score-run records: best result per song × chart × speed × stop mode.
-import { accuracyOf, type JudgeStats, type Judgment, type Summary } from './game/judge';
+import { accuracyOf, gradeOf, type JudgeStats, type Judgment, type Summary } from './game/judge';
 import { loadJson, saveJson, saveToProjectFile } from './storage';
 import type { PartId } from './song/targets';
 
@@ -82,12 +82,20 @@ export function bestFor(k: ScoreKey): ScoreRecord | undefined {
   return getScores()[scoreKey(k)];
 }
 
-/** Records a finished score run; returns the previous best (if any) and whether this beat it. */
+/**
+ * Records a finished score run; returns the previous best (if any) and whether this
+ * beat it. Accuracy decides the best, with score as the tiebreak: the grade is what
+ * a run is judged on, so a cleaner run takes the record even if its timing — and so
+ * its score — came out lower.
+ */
 export function recordRun(k: ScoreKey, stats: JudgeStats, summary: Summary): { previous?: ScoreRecord; isBest: boolean } {
   const all = getScores();
   const key = scoreKey(k);
   const previous = all[key];
-  const isBest = !previous || stats.score > previous.score;
+  const previousAccuracy = previous ? recordAccuracy(previous) : 0;
+  const isBest = !previous
+    || summary.accuracy > previousAccuracy
+    || (summary.accuracy === previousAccuracy && stats.score > previous.score);
   const plays = (previous?.plays ?? 0) + 1;
   all[key] = isBest
     ? {
@@ -129,6 +137,24 @@ export function migrateLegacyBests() {
   }
   saveScores(all);
   localStorage.removeItem('bestScores');
+}
+
+/**
+ * Regrades records whose stored S predates the 99% bar S now needs. Only S records
+ * are touched, and each takes the grade its accuracy earns today (A for all of
+ * them, since S used to start at 95%).
+ */
+export function migrateGrades() {
+  const all = getScores();
+  let changed = false;
+  for (const rec of Object.values(all)) {
+    if (rec.grade !== 'S') continue;
+    const grade = gradeOf(recordAccuracy(rec));
+    if (grade === 'S') continue;
+    rec.grade = grade;
+    changed = true;
+  }
+  if (changed) saveScores(all);
 }
 
 /**
