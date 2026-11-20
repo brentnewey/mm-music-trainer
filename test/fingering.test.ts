@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assignFingering, markWideReaches } from '../src/song/fingering';
+import { assignFingering, markHandClashes, markWideReaches } from '../src/song/fingering';
 import type { TargetNote } from '../src/game/judge';
 
 /** Notes at a steady 4 per second */
@@ -81,5 +81,47 @@ describe('markWideReaches', () => {
     const notes = [note(48, 0, 0.5), note(72, 0.5, 0.5), note(40, 1, 1, 'L'), note(70, 1, 1, 'L')];
     markWideReaches(notes);
     expect(notes.some((n) => n.wide)).toBe(false);
+  });
+});
+
+describe('markHandClashes', () => {
+  const note = (midi: number, time: number, duration: number, hand: 'L' | 'R'): TargetNote => ({ midi, time, duration, ch: hand === 'L' ? 2 : 0, hand });
+
+  it('marks both notes where the left hand wants a key the right hand holds', () => {
+    const notes = [note(60, 0, 1, 'R'), note(60, 0.5, 0.2, 'L')];
+    markHandClashes(notes);
+    expect(notes.map((n) => !!n.clash)).toEqual([true, true]);
+  });
+
+  it('marks the hands crossing over, left above right', () => {
+    const notes = [note(55, 0, 1, 'R'), note(62, 0.5, 0.2, 'L')];
+    markHandClashes(notes);
+    expect(notes.map((n) => !!n.clash)).toEqual([true, true]);
+  });
+
+  it('leaves the hands alone where the left stays below the right', () => {
+    const notes = [note(60, 0, 1, 'R'), note(59, 0.5, 0.2, 'L'), note(40, 0.5, 1, 'L')];
+    markHandClashes(notes);
+    expect(notes.some((n) => n.clash)).toBe(false);
+  });
+
+  it('ignores notes that only follow each other, and two notes of one hand', () => {
+    const follows = [note(60, 0, 0.5, 'R'), note(72, 0.5, 0.5, 'L')];
+    markHandClashes(follows);
+    expect(follows.some((n) => n.clash)).toBe(false);
+    const oneHand = [note(60, 0, 1, 'R'), note(72, 0.2, 1, 'R')];
+    markHandClashes(oneHand);
+    expect(oneHand.some((n) => n.clash)).toBe(false);
+  });
+
+  it('clears the flag when a rebuild no longer clashes, and skips slides', () => {
+    const notes = [note(60, 0, 1, 'R'), note(60, 0.5, 0.2, 'L')];
+    markHandClashes(notes);
+    notes[1].midi = 48;
+    markHandClashes(notes);
+    expect(notes.some((n) => n.clash)).toBe(false);
+    const slide: TargetNote[] = [note(60, 0, 1, 'R'), { ...note(55, 0.5, 0.2, 'L'), slideTo: 67 }];
+    markHandClashes(slide);
+    expect(slide.some((n) => n.clash)).toBe(false);
   });
 });

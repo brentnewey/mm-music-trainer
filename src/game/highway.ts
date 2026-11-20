@@ -1,5 +1,6 @@
 // Canvas renderer: notes fall toward a piano keyboard at the bottom.
 import type { Judgment, TargetNote } from './judge';
+import { handOf } from '../song/hands';
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const BLACK = new Set([1, 3, 6, 8, 10]);
@@ -10,7 +11,7 @@ export const isBlack = (m: number) => BLACK.has(((m % 12) + 12) % 12);
 export const HAND_COLORS = { R: '#3cbcfc', L: '#fca044' };
 /** Notes held together too far apart for one hand to reach */
 export const WIDE_COLOR = '#f83800';
-const noteColor = (n: TargetNote) => (n.wide ? WIDE_COLOR : HAND_COLORS[n.hand ?? (n.ch === 2 ? 'L' : 'R')]);
+const noteColor = (n: TargetNote) => (n.wide || n.clash ? WIDE_COLOR : HAND_COLORS[handOf(n)]);
 const JUDGE_COLORS: Record<Judgment, string> = { perfect: '#80f0ff', great: '#58f898', good: '#f8d878', miss: '#f85858' };
 
 interface Popup { text: string; color: string; x: number; born: number }

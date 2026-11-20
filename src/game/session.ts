@@ -23,9 +23,10 @@ export interface SessionHud {
 /**
  * Song-time span of the repeating section (seconds). A looped practice section
  * starts its span a little before the section, so the music leading into it
- * replays (with a countdown) before every pass.
+ * replays (with a countdown) before every pass; `leadIn` is how much of the span
+ * is that run-up (the song's own loop has none).
  */
-export interface LoopSpan { start: number; length: number }
+export interface LoopSpan { start: number; length: number; leadIn?: number }
 
 /** Song-time span (seconds) of a practice section; notes outside it should already be dropped */
 export interface PlayRange { start: number; end: number }
@@ -44,7 +45,7 @@ export class Session {
   /** Stop mode: keys pressed for the current chord and still held down */
   private chordKeys = new Set<number>();
   private endTime: number;
-  private finished = false;
+  finished = false;
   paused = false;
   /** Notes of one pass through the loop, used as a template for later passes */
   private loopTemplate: TargetNote[] = [];
@@ -76,7 +77,7 @@ export class Session {
     this.highway.setRange(notes);
     const last = notes[notes.length - 1];
     this.startPos = range?.start ?? 0;
-    if (loopSpan && range) this.passLeadIn = range.start - loopSpan.start;
+    this.passLeadIn = loopSpan?.leadIn ?? 0;
     if (loopSpan) {
       this.endTime = Infinity;
       this.loopTemplate = notes.filter((n) => n.time >= loopSpan.start - 0.001).map((n) => ({ ...n }));

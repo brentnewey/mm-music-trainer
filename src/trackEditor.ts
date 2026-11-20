@@ -1,8 +1,8 @@
 // Track editor: a piano roll of a song's three melodic channels, coloured by the
 // hand that plays each note. Select a stretch of the song (or one note), narrow it
-// to channels and sounds, then move it to a hand or remove it. The edits are rules
-// (see song/hands.ts) saved per song in track-edits.json. A stretch can also be
-// merged into one held note, for a vibrato or trill written as many short notes,
+// to channels and sounds, then move it to a hand, swap the hands over it, or remove
+// it. The edits are rules (see song/hands.ts) saved per song in track-edits.json.
+// A stretch can also be merged into one held note, for a vibrato or trill written as many short notes,
 // or into one slide along the keys, for a run too fast to play note by note. A long
 // note can be split where a stretch starts and ends, to strike it again, and echoes
 // on another channel can be joined to the notes they repeat.
@@ -10,8 +10,9 @@ import type { AudioEngine } from './audio/engine';
 import { WIDE_COLOR, noteName } from './game/highway';
 import { formatClock } from './sectionPicker';
 import { FRAME_SECONDS, type Note, type SongAnalysis } from './song/analyze';
-import { wideReaches } from './song/fingering';
-import { CHANNEL_HAND, applyMerges, isKept, roleOf, ruleCovers, soundOf, splitPoints, type EditRule, type Role } from './song/hands';
+import { handClashes, wideReaches } from './song/fingering';
+import { buildPart } from './song/targets';
+import { CHANNEL_HAND, applyMerges, isEasyOff, isKept, roleOf, ruleCovers, soundOf, splitPoints, type EditRule, type Role } from './song/hands';
 
 export interface EditorContext {
   title: string;
@@ -35,6 +36,12 @@ export interface EditorView {
   range: { start: number; end: number } | null;
   /** The picked note's channel and start frame */
   picked: { ch: number; start: number } | null;
+  /**
+   * A line drawn across the roll (song seconds at 100% speed), with no selection of
+   * its own: where a run was when it dropped into the editor (the pause menu's
+   * Edit parts here). With no `scroll`, the roll opens with it in view
+   */
+  marker?: number;
   filter?: string[][];
   pps?: number;
   scroll?: number;
@@ -45,14 +52,15 @@ export interface EditorView {
   redo?: EditRule[][];
 }
 
-interface EdNote { n: Note; t: number; d: number; sound: string; role: Role; kept: boolean }
+/** `easyOff`: left out of easy mode */
+interface EdNote { n: Note; t: number; d: number; sound: string; role: Role; kept: boolean; easyOff: boolean }
 interface Sound { key: string; letter: string; label: string; count: number }
 
 const CHANNELS = ['Pulse 1', 'Pulse 2', 'Triangle'];
 /** Removed notes are drawn as outlines */
 const ROLE_COLORS: Record<Role, string> = { R: '#3cbcfc', L: '#fca044', off: '#8890b8' };
 type Action = EditRule['hand'];
-const ROLE_NAMES: Record<Action, string> = { R: 'right hand', L: 'left hand', off: 'removed', default: 'usual hand', merge: 'merged into one note', tie: 'repeated notes merged', slide: 'made a slide', split: 'split', join: 'echoes joined to the notes they repeat', keep: 'played even if short' };
+const ROLE_NAMES: Record<Action, string> = { R: 'right hand', L: 'left hand', off: 'removed', default: 'usual hand', swap: 'the other hand', merge: 'merged into one note', tie: 'repeated notes merged', slide: 'made a slide', split: 'split', join: 'echoes joined to the notes they repeat', keep: 'played even if short', '8va': 'moved up an octave', '8vb': 'moved down an octave', 'easy-off': 'not in easy mode' };
 const DUTY = ['12.5%', '25%', '50%', '75%'];
 const AXIS_H = 18;
 const LANE_H = 112;
@@ -61,6 +69,10 @@ const HEIGHT = AXIS_H + 3 * LANE_H;
 const DRAG_PX = 4;
 /** Range edges snap to a note onset this close (px) */
 const SNAP_PX = 6;
+/** Seconds of song to show around a marker when the editor opens on one */
+const MARKER_ZOOM_SECONDS = 20;
+/** The marker line's colour */
+const MARKER_COLOR = '#f8d878';
 /** Score runs leave out notes shorter than this (frames); the summary counts what they play */
 const SCORE_MIN_FRAMES = 4;
 
@@ -91,6 +103,8 @@ class TrackEditor {
   private notes: EdNote[] = [];
   /** Right-hand notes held with another too far away to reach */
   private wide = new Set<EdNote>();
+  /** Notes where the left hand wants the right hand's key, or reaches above it */
+  private clash = new Set<EdNote>();
   private onsets: number[] = [];
   private sounds: Sound[][];
   private duration: number;
@@ -98,6 +112,8 @@ class TrackEditor {
   private pps = 40;
   private range: { start: number; end: number } | null = null;
   private picked: EdNote | null = null;
+  /** Where a run left off, drawn as a line across the roll; see EditorView.marker */
+  private marker: number | undefined;
   /** Sounds (keys) included in a range selection, per channel */
   private filter: Set<string>[];
   private highlight: ((n: EdNote) => boolean) | null = null;
@@ -158,6 +174,7 @@ class TrackEditor {
       const view: EditorView = {
         range: this.range,
         picked: this.picked && { ch: this.picked.n.ch, start: this.picked.n.start },
+        marker: this.marker,
         filter: this.filter.map((f) => [...f]),
         pps: this.pps,
         scroll: this.scroll.roll,
@@ -170,7 +187,9 @@ class TrackEditor {
 
     this.dialog.showModal();
     const v = ctx.view;
-    this.pps = Math.max(this.fitPps(), v?.pps ?? 0);
+    this.marker = v?.marker;
+    // Dropping in on a marker with no remembered zoom opens close enough to work at
+    this.pps = Math.max(this.fitPps(), v?.pps ?? (this.marker === undefined ? 0 : this.roll.clientWidth / MARKER_ZOOM_SECONDS));
     if (v) {
       this.filter = this.sounds.map((ss, ch) => new Set(ss.map((s) => s.key).filter((k) => v.filter?.[ch]?.includes(k) ?? true)));
       this.range = v.range;
@@ -180,7 +199,9 @@ class TrackEditor {
       this.redoStack = v.redo ?? [];
     }
     this.layout();
-    this.roll.scrollLeft = v ? v.scroll ?? (v.range ? v.range.start * this.pps - 40 : 0) : 0;
+    this.roll.scrollLeft = v?.scroll
+      ?? (this.marker !== undefined ? this.marker * this.pps - this.roll.clientWidth / 3
+        : v?.range ? v.range.start * this.pps - 40 : 0);
     this.scroll.roll = this.roll.scrollLeft;
     this.renderPanel();
     // After opening scrolls the first button into view
@@ -208,11 +229,17 @@ class TrackEditor {
     const end = this.ctx.analysis.endFrame;
     this.notes = applyMerges(this.raw, this.edits).map((n) => ({
       n, t: n.start * FRAME_SECONDS, d: (Math.min(n.end, end) - n.start) * FRAME_SECONDS, sound: soundOf(n), role: roleOf(n, this.edits), kept: isKept(n, this.edits),
+      easyOff: isEasyOff(n, this.edits),
     }));
     this.onsets = [...new Set(this.notes.map((e) => e.t))].sort((x, y) => x - y);
     const right = this.notes.filter((e) => e.role === 'R' && playable(e) && e.n.slideTo === undefined);
     const wide = wideReaches(right.map((e) => ({ e, time: e.t, duration: e.d, midi: e.n.midi })));
     this.wide = new Set([...wide].map((w) => w.e));
+    // Clashes come from the built two-hand part, where a unison the hands share is already
+    // one note: the roll's own notes still hold both of them, which would look like a clash
+    const both = buildPart(this.ctx.analysis, 'both', { minFrames: SCORE_MIN_FRAMES, speed: 1, octaveShift: 0, edits: this.edits });
+    const clashed = new Set([...handClashes(both)].map((n) => `${n.ch}:${n.time}:${n.midi}`));
+    this.clash = new Set(this.notes.filter((e) => clashed.has(`${e.n.ch}:${e.t}:${e.n.midi}`)));
     // A picked note may have been merged away or replaced
     const p = this.picked;
     this.picked = p && (this.notes.find((e) => e.n.ch === p.n.ch && e.n.start === p.n.start) ?? null);
@@ -233,10 +260,36 @@ class TrackEditor {
     this.setEdits(edits);
   }
 
-  /** Ctrl+Z undoes the last change to the edits; Ctrl+Y or Ctrl+Shift+Z redoes it */
+  /**
+   * Delete removes the selection, E leaves it out of easy mode and the arrow keys move it an octave; Ctrl+A selects the
+   * whole song; Ctrl+Z undoes the last change to the edits, Ctrl+Y or Ctrl+Shift+Z redoes it
+   */
   private onKey = (ev: KeyboardEvent) => {
-    if (!(ev.ctrlKey || ev.metaKey) || ev.altKey) return;
+    const el = ev.target as HTMLElement | null;
+    if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
     const key = ev.key.toLowerCase();
+    const plain = !ev.ctrlKey && !ev.metaKey && !ev.altKey;
+    if ((key === 'delete' || key === 'backspace') && plain) {
+      ev.preventDefault();
+      this.assign('off');
+      return;
+    }
+    if (key === 'e' && plain) {
+      ev.preventDefault();
+      this.assign('easy-off');
+      return;
+    }
+    if ((key === 'arrowup' || key === 'arrowdown') && plain) {
+      ev.preventDefault();
+      this.assign(key === 'arrowup' ? '8va' : '8vb');
+      return;
+    }
+    if (!(ev.ctrlKey || ev.metaKey) || ev.altKey) return;
+    if (key === 'a' && !ev.shiftKey) {
+      ev.preventDefault();
+      this.select(null, null);
+      return;
+    }
     const redo = key === 'y' || (key === 'z' && ev.shiftKey);
     if (key !== 'z' && !redo) return;
     ev.preventDefault();
@@ -320,6 +373,15 @@ class TrackEditor {
       const held = this.toSplit().length;
       label.innerHTML = `${where} · ${sel.length} note${sel.length === 1 ? '' : 's'}` + (held ? ` · ${held} held across its ends` : '');
     }
+    if (this.marker !== undefined) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'btn small';
+      chip.textContent = `marker ${formatClock(this.marker)} ✕`;
+      chip.title = 'Where the run you came from had reached. Click to clear the marker.';
+      chip.onclick = () => { this.marker = undefined; this.renderPanel(); this.draw(); };
+      label.append(' ', chip);
+    }
     $<HTMLButtonElement>('edit-whole').disabled = !this.range && !this.picked;
 
     // Channel and sound filter (ranges and the whole song only)
@@ -366,7 +428,12 @@ class TrackEditor {
     }
     for (const b of document.querySelectorAll<HTMLButtonElement>('#edit-actions [data-role]')) {
       const role = b.dataset.role;
-      b.disabled = role === 'merge' || role === 'tie' || role === 'slide' ? !this.canMerge(sel) : role === 'split' ? !this.toSplit().length : role === 'keep' ? sel.every(playable) : !sel.length;
+      b.disabled = role === 'merge' || role === 'tie' || role === 'slide' ? !this.canMerge(sel)
+        : role === 'split' ? !this.toSplit().length
+        : role === 'keep' ? sel.every(playable)
+        // Swapping only means something where the selection still has a hand
+        : role === 'swap' ? sel.every((e) => e.role === 'off')
+        : !sel.length;
     }
 
     // Edits so far, newest last
@@ -391,9 +458,12 @@ class TrackEditor {
 
     // What score runs will play
     const counts: Record<Role, number> = { R: 0, L: 0, off: 0 };
-    for (const e of this.notes) if (playable(e)) counts[e.role]++;
+    let easyOff = 0;
+    for (const e of this.notes) if (playable(e)) { counts[e.role]++; if (e.easyOff && e.role !== 'off') easyOff++; }
     $('edit-summary').innerHTML = `<span style="color:${ROLE_COLORS.R}">■</span> Right hand ${counts.R} · <span style="color:${ROLE_COLORS.L}">■</span> Left hand ${counts.L} · <span class="removed">□</span> Removed ${counts.off}`
+      + (easyOff ? ` · <span class="removed" title="Notes easy mode leaves out (drawn as dashed outlines)">┄</span> Not in easy ${easyOff}` : '')
       + (this.wide.size ? ` · <span style="color:${WIDE_COLOR}" title="Right-hand notes held together more than a minor tenth apart, too far for one hand">■</span> Out of reach ${this.wide.size}` : '')
+      + (this.clash.size ? ` · <span style="color:${WIDE_COLOR}" title="The left hand wants a key the right hand is holding, or reaches above it. Move one of the lines an octave to clear it">■</span> Hands clash ${this.clash.size}` : '')
       + ' <small>(notes in a score run)</small>';
   }
 
@@ -550,20 +620,21 @@ class TrackEditor {
       g.setLineDash([]);
     }
 
-    // Notes: dimmed outside the selection, white where hovered, outlined where removed,
+    // Notes: dimmed outside the selection, white where hovered, outlined where removed
+    // (grey, or dashed in the hand's colour where only easy mode leaves them out),
     // faint where too short to show in play
     const sel = this.narrowed() ? new Set(this.selected()) : null;
     for (const e of this.notes) {
       if (e.t + e.d < t0 || e.t > t1) continue;
       const l = this.lanes[e.n.ch];
       const [nx, ny, nw] = [x(e.t), l.y(e.n.midi), Math.max(2, e.d * this.pps - 1)];
-      const color = this.highlight?.(e) ? '#ffffff' : this.wide.has(e) ? WIDE_COLOR : ROLE_COLORS[e.role];
+      const color = this.highlight?.(e) ? '#ffffff' : this.wide.has(e) || this.clash.has(e) ? WIDE_COLOR : ROLE_COLORS[e.role];
       g.globalAlpha = (!sel || sel.has(e) ? 1 : 0.5) * (playable(e) ? 1 : 0.35);
       if (e.n.slideTo !== undefined) {
         // A slide: a sloping line from its first pitch to its last, dashed where removed
         g.strokeStyle = color;
         g.lineWidth = l.h;
-        if (e.role === 'off') g.setLineDash([3, 3]);
+        if (e.role === 'off' || e.easyOff) g.setLineDash([3, 3]);
         g.beginPath();
         g.moveTo(nx, ny + l.h / 2);
         g.lineTo(nx + nw, l.y(e.n.slideTo) + l.h / 2);
@@ -573,6 +644,11 @@ class TrackEditor {
       } else if (e.role === 'off') {
         g.strokeStyle = color;
         g.strokeRect(nx + 0.5, ny + 0.5, Math.max(1, nw - 1), Math.max(1, l.h - 1));
+      } else if (e.easyOff) {
+        g.strokeStyle = color;
+        g.setLineDash([3, 2]);
+        g.strokeRect(nx + 0.5, ny + 0.5, Math.max(1, nw - 1), Math.max(1, l.h - 1));
+        g.setLineDash([]);
       } else {
         g.fillStyle = color;
         g.fillRect(nx, ny, nw, l.h);
@@ -595,6 +671,18 @@ class TrackEditor {
       g.fillStyle = '#58f898';
       g.fillRect(a - 1, 0, 2, HEIGHT);
       g.fillRect(b - 1, 0, 2, HEIGHT);
+    }
+
+    // Where the run that dropped into the editor had reached
+    if (this.marker !== undefined && this.marker >= t0 && this.marker <= t1) {
+      const mx = x(this.marker);
+      g.fillStyle = MARKER_COLOR;
+      g.fillRect(mx - 1, 0, 2, HEIGHT);
+      g.beginPath();
+      g.moveTo(mx - 5, 0);
+      g.lineTo(mx + 5, 0);
+      g.lineTo(mx, 7);
+      g.fill();
     }
 
     // Lane names, over the notes

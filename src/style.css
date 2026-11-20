@@ -176,6 +176,7 @@ select, input[type='number'] { background: #000a; color: var(--text); border: 1p
 .countdown { position: absolute; top: 35%; width: 100%; text-align: center; font: 64px var(--pixel); color: var(--blue); pointer-events: none; text-shadow: 0 0 20px #3cbcfc88; }
 .wait-banner { position: absolute; top: 70px; width: 100%; text-align: center; font: 12px var(--pixel); color: var(--amber); pointer-events: none; }
 .hud-pass { color: var(--amber); margin-top: 6px; }
+.hud-time { color: var(--muted); margin-top: 6px; font-variant-numeric: tabular-nums; }
 .pass-banner { position: absolute; top: 30%; width: 100%; text-align: center; font: 20px var(--pixel); color: var(--green); pointer-events: none; text-shadow: 0 0 12px #58f89866; }
 .results .passes { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
 .tracks .name .edit { opacity: 0; margin-left: 8px; font-size: 12px; color: var(--muted); }

@@ -19,6 +19,8 @@ export interface TargetNote {
   finger?: number;
   /** Held with another of the hand's notes too far away to reach (see `markWideReaches`) */
   wide?: boolean;
+  /** Sounding at or above the other hand's note held with it (see `markHandClashes`) */
+  clash?: boolean;
   judgment?: Judgment;
   /** played - expected, seconds (negative = early) */
   offset?: number;

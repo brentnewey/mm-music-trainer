@@ -74,6 +74,10 @@ export interface Settings {
   loop: boolean;
   /** Practice ladder: looped passes at 90%+ move up a speed, poor ones move back down */
   ladder: boolean;
+  /** Start at your part's first note and end after its last, skipping music you don't play */
+  trimToPart: boolean;
+  /** Easy mode: leave out the notes the song's edits mark as not in easy mode */
+  easy: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -90,6 +94,8 @@ export const DEFAULT_SETTINGS: Settings = {
   waitMode: false,
   loop: false,
   ladder: false,
+  trimToPart: true,
+  easy: false,
 };
 
 export const getSettings = () => loadJson<Settings>('settings', DEFAULT_SETTINGS);

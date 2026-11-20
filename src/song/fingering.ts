@@ -9,6 +9,7 @@
 // in time are scaled down because the hand can reposition during a rest.
 import type { TargetNote } from '../game/judge';
 import { isBlack } from '../game/highway';
+import { handOf, type Hand } from './hands';
 
 /** Fingers: 1 = thumb … 5 = little finger, as in printed piano music */
 export type Finger = 1 | 2 | 3 | 4 | 5;
@@ -220,6 +221,33 @@ export function wideReaches<T extends { time: number; duration: number; midi: nu
 /** Sets `wide` on the right hand's notes that are out of reach of a note held with them */
 export function markWideReaches(notes: TargetNote[]) {
   for (const n of notes) delete n.wide;
-  const right = notes.filter((n) => n.slideTo === undefined && (n.hand ?? (n.ch === 2 ? 'L' : 'R')) === 'R');
+  const right = notes.filter((n) => n.slideTo === undefined && handOf(n) === 'R');
   for (const n of wideReaches(right)) n.wide = true;
+}
+
+/**
+ * The notes the hands clash on: a left-hand note sounding at or above a right-hand
+ * note held with it. The same pitch needs one key from two hands at once, and a
+ * higher one crosses the hands over; either is a sign the line wants moving an
+ * octave (see the `8va`/`8vb` edits). Slides don't count.
+ */
+export function handClashes<T extends { time: number; duration: number; midi: number; hand?: Hand; ch: number; slideTo?: number }>(notes: T[]): Set<T> {
+  const clash = new Set<T>();
+  const sorted = [...notes].filter((n) => n.slideTo === undefined).sort((a, b) => a.time - b.time);
+  let held: T[] = [];
+  for (const n of sorted) {
+    held = held.filter((h) => h.time + h.duration > n.time + 1e-3);
+    for (const h of held) {
+      const [l, r] = handOf(h) === 'L' ? [h, n] : [n, h];
+      if (handOf(l) === 'L' && handOf(r) === 'R' && l.midi >= r.midi) { clash.add(h); clash.add(n); }
+    }
+    held.push(n);
+  }
+  return clash;
+}
+
+/** Sets `clash` on the notes where the hands want the same key, or cross over */
+export function markHandClashes(notes: TargetNote[]) {
+  for (const n of notes) delete n.clash;
+  for (const n of handClashes(notes)) n.clash = true;
 }

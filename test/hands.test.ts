@@ -50,6 +50,33 @@ describe('roleOf', () => {
     const at = (t: number) => roleOf(notes.find((n) => Math.abs(timeOf(n) - t) < 0.01)!, rules);
     expect([at(1), at(2), at(3), at(5)]).toEqual(['off', 'L', 'R', 'off']);
   });
+
+  it('swaps the hands over a stretch, leaving removed notes removed', () => {
+    // A section where the lines cross: the triangle takes the tune and Pulse 1 the bass
+    const notes = [...part(0, [72, 74], 20), ...part(2, [43, 48], 20)];
+    const drum = part(1, [81], 20, { duty: 0, vel: 6 });
+    const rules: EditRule[] = [
+      { ch: 1, hand: 'off' },
+      ...[0, 1, 2].map((ch): EditRule => ({ ch, from: 4, to: 12, hand: 'swap' })),
+    ];
+    const within = (ns: Note[]) => ns.filter((n) => timeOf(n) >= 4 && timeOf(n) < 12);
+    const outside = (ns: Note[]) => ns.filter((n) => timeOf(n) < 4 || timeOf(n) >= 12);
+    const p1 = notes.filter((n) => n.ch === 0);
+    const tri = notes.filter((n) => n.ch === 2);
+    expect(rolesOf(within(p1), 0, rules)).toEqual(new Set(['L']));
+    expect(rolesOf(within(tri), 2, rules)).toEqual(new Set(['R']));
+    expect(rolesOf(outside(p1), 0, rules)).toEqual(new Set(['R']));
+    expect(rolesOf(outside(tri), 2, rules)).toEqual(new Set(['L']));
+    // A removed note has no hand to swap
+    expect(rolesOf(drum, 1, rules)).toEqual(new Set(['off']));
+  });
+
+  it('puts the hands back when two swaps stack', () => {
+    const notes = part(0, [60], 10);
+    const rules: EditRule[] = [{ ch: 0, hand: 'swap' }, { ch: 0, hand: 'swap' }];
+    expect(rolesOf(notes, 0, rules)).toEqual(new Set(['R']));
+    expect(rolesOf(notes, 0, rules.slice(1))).toEqual(new Set(['L']));
+  });
 });
 
 describe('applyMerges', () => {
@@ -151,6 +178,45 @@ describe('slides', () => {
   });
 });
 
+describe('octave shifts', () => {
+  const t = (f: number) => f * FRAME_SECONDS;
+  const bass: Note[] = [50, 62, 50, 60].map((midi, i) => ({ ch: 2, midi, start: 1 + 6 * i, end: 6 + 6 * i, vel: 15, duty: 0 }));
+
+  it('moves the notes it covers an octave down, leaving everything else alone', () => {
+    const out = applyMerges(bass, [{ ch: 2, hand: '8vb' }]);
+    expect(out.map((n) => n.midi)).toEqual([38, 50, 38, 48]);
+    expect(out.map((n) => [n.start, n.end, n.vel, n.duty])).toEqual(bass.map((n) => [n.start, n.end, n.vel, n.duty]));
+  });
+
+  it('moves notes up an octave, and only inside the range and sound it covers', () => {
+    const other = bass.map((n) => ({ ...n, ch: 1, vel: 8, duty: 2 }));
+    const out = applyMerges([...bass, ...other], [{ ch: 2, from: t(6), to: t(18), hand: '8va' }]);
+    expect(out.filter((n) => n.ch === 2).map((n) => n.midi)).toEqual([50, 74, 62, 60]);
+    expect(out.filter((n) => n.ch === 1).map((n) => n.midi)).toEqual([50, 62, 50, 60]);
+  });
+
+  it('stacks, so two shifts move two octaves', () => {
+    const out = applyMerges(bass, [{ ch: 2, hand: '8vb' }, { ch: 2, hand: '8vb' }]);
+    expect(out.map((n) => n.midi)).toEqual([26, 38, 26, 36]);
+    expect(applyMerges(bass, [{ ch: 2, hand: '8vb' }, { ch: 2, hand: '8va' }]).map((n) => n.midi)).toEqual([50, 62, 50, 60]);
+  });
+
+  it('moves a slide at both ends, and keeps the hand the note already had', () => {
+    const run: Note[] = [76, 72, 69, 64].map((midi, i) => ({ ch: 1, midi, start: 1 + 2 * i, end: 3 + 2 * i, vel: 8, duty: 2 }));
+    const edits: EditRule[] = [{ ch: 1, hand: 'slide' }, { ch: 1, hand: '8vb' }];
+    expect(applyMerges(run, edits)).toEqual([{ ch: 1, midi: 64, slideTo: 52, start: 1, end: 9, vel: 8, duty: 2 }]);
+    expect(rolesOf(applyMerges(bass, [{ ch: 2, hand: '8vb' }]), 2, [{ ch: 2, hand: '8vb' }])).toEqual(new Set(['L']));
+  });
+
+  it('builds the moved pitch into the targets', () => {
+    const a: SongAnalysis = { id: 0, loopStart: -1, endFrame: 2000, notes: bass };
+    const opts = { minFrames: 4, speed: 1, octaveShift: 0 };
+    expect(buildPart(a, 'lh', { ...opts, edits: [{ ch: 2, hand: '8vb' }] }).map((n) => n.midi)).toEqual([38, 50, 38, 48]);
+    // The player's own octave setting still applies on top
+    expect(buildPart(a, 'lh', { ...opts, octaveShift: 1, edits: [{ ch: 2, hand: '8vb' }] }).map((n) => n.midi)).toEqual([50, 62, 50, 60]);
+  });
+});
+
 describe('joining echoes', () => {
   const note = (ch: number, midi: number, start: number, len: number): Note => ({ ch, midi, start, end: start + len, vel: 8, duty: 2 });
   // Pulse 2 repeats Pulse 1 12 frames later: once while it still sounds, once after a short note ends
@@ -181,6 +247,14 @@ describe('joining echoes', () => {
     // Wood Man at 0:30: Pulse 1 holds A4, strikes it again while Pulse 2's longer echo of it sounds, and is echoed again
     const ns = [note(0, 69, 0, 49), note(1, 69, 10, 51), note(0, 69, 50, 9), note(1, 69, 61, 6)];
     expect(applyMerges(ns, [{ ch: 0, hand: 'join' }, { ch: 1, hand: 'join' }]).map((n) => [n.ch, n.start, n.end])).toEqual([[0, 0, 50], [0, 50, 67]]);
+  });
+
+  it("doesn't fold the leading channel's note into the other channel's earlier note of that pitch", () => {
+    // Quick Man at 0:31: Pulse 2 harmonises C under Pulse 1's E♭, then echoes Pulse 1's D–C–B♭ six frames late
+    const ns = [note(0, 75, 0, 11), note(1, 72, 0, 11), note(0, 74, 12, 11), note(1, 74, 18, 11),
+      note(0, 72, 24, 11), note(1, 72, 30, 11), note(0, 70, 36, 11), note(1, 70, 42, 5)];
+    const out = applyMerges(ns, [{ ch: 0, hand: 'join' }, { ch: 1, hand: 'join' }]);
+    expect(out.map((n) => [n.ch, n.midi, n.start, n.end])).toEqual([[1, 72, 0, 11], [0, 75, 0, 11], [0, 74, 12, 29], [0, 72, 24, 41], [0, 70, 36, 47]]);
   });
 
   it('only joins notes on the channels the edit covers', () => {
@@ -217,6 +291,20 @@ describe('buildTargets with edits', () => {
     expect(buildPart(a(notes), 'lh', { ...opts, edits }).every((n) => n.time < 1.9)).toBe(true);
   });
 
+  it('leaves easy-off notes out of easy mode only, without changing their hand', () => {
+    // A melody on Pulse 1 with Pulse 2 harmonising under it: easy mode keeps the melody
+    const notes = [...part(0, [76, 79], 4), ...part(1, [72, 76], 4)];
+    const edits: EditRule[] = [{ ch: 1, hand: 'easy-off', from: 1.9 }];
+    expect(roleOf(notes[notes.length - 1], edits)).toBe('R');
+    expect(buildPart(a(notes), 'right', { ...opts, edits }).length).toBe(32);
+    const easy = buildPart(a(notes), 'right', { ...opts, edits, easy: true });
+    expect(easy.length).toBe(32 - 8);
+    expect(easy.filter((n) => n.ch === 1).every((n) => n.time < 1.9)).toBe(true);
+    // Removed stays removed, and a later hand edit doesn't bring a note back into easy mode
+    const both: EditRule[] = [...edits, { ch: 1, hand: 'L' }];
+    expect(buildPart(a(notes), 'lh', { ...opts, edits: both, easy: true }).length).toBe(8);
+  });
+
   it('keeps a unison note when the channel that doubled it is removed', () => {
     const notes = [...part(0, [72], 4), ...part(1, [72], 4)];
     expect(buildTargets(a(notes), [0, 1], opts).length).toBe(16);
@@ -244,16 +332,26 @@ describe.skipIf(!fs.existsSync('roms/nsf/mm3.bin'))('Needle Man (MM3)', () => {
     expect(handsOf(intro, 0)).toEqual(new Set(['L']));
     // The intro's triangle line is moved off the left hand (to the right, or removed)
     expect(handsOf(intro, 2).has('L')).toBe(false);
-    expect(handsOf(notes.filter((n) => n.time >= 16.7), 0)).toEqual(new Set(['R']));
+    // …until 71.6 s, where a short Pulse 1 phrase goes to the left hand again
+    expect(handsOf(notes.filter((n) => n.time >= 16.7 && n.time < 71.6), 0)).toEqual(new Set(['R']));
+    expect(handsOf(notes.filter((n) => n.time >= 71.6 && n.time < 72.7), 0).has('L')).toBe(true);
   });
 
   it('splits the song into parts by hand, with every note in exactly one hand', () => {
     const both = buildPart(a, 'both', opts);
     const right = buildPart(a, 'right', opts);
     const left = buildPart(a, 'lh', opts);
-    expect(right.length + left.length).toBe(both.length);
-    // After the intro the right hand is both pulses, every note of them
-    const later = (ns: TargetNote[]) => ns.filter((n) => n.time >= 16.7);
+    expect(right.every((n) => n.hand === 'R')).toBe(true);
+    expect(left.every((n) => n.hand === 'L')).toBe(true);
+    // Every note of the whole arrangement is in its hand's part. A hand's part also keeps
+    // the unisons the whole build merges away, so the two parts can hold more notes than it
+    const key = (n: TargetNote) => `${n.ch}:${n.time}:${n.midi}`;
+    const parts = new Set([...right, ...left].map(key));
+    expect(both.filter((n) => !parts.has(key(n)))).toEqual([]);
+    expect(right.length + left.length).toBeGreaterThanOrEqual(both.length);
+    // After the intro the right hand is both pulses, every note of them (up to 71.6 s,
+    // where a short Pulse 1 phrase goes to the left hand)
+    const later = (ns: TargetNote[]) => ns.filter((n) => n.time >= 16.7 && n.time < 71.6);
     expect(later(right).length).toBe(later(both).filter((n) => n.ch < 2).length);
   });
 

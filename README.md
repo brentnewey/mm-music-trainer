@@ -10,11 +10,13 @@ The music isn't recorded or transcribed. It's generated live by the games' own s
 
 - **Every track, found automatically:** 16–34 per game, including stage themes, bosses, jingles and endings.
 - **Play by hand:** right hand (both pulses, or one pulse alone as an easier version), left hand (the triangle), or both.
-- **Track editor:** reshape a song's parts into something closer to a piano arrangement. Move a stretch, a sound or a single note to the other hand, or remove percussion and accompaniment you don't want to play.
+- **Track editor:** reshape a song's parts into something closer to a piano arrangement. Move a stretch, a sound or a single note to the other hand, swap the hands over a section where the lines cross, or remove percussion and accompaniment you don't want to play.
 - **Practice tools:**
   - speed 10–100% without changing pitch;
   - **stop mode**, where the song waits at each note until you play it;
+  - **easy mode**, which leaves out the notes you've marked *Not in easy* (a chord's harmony, say), so the tune comes down to one key at a time;
   - **sections:** drag across a timeline to practise one passage, once or on repeat;
+  - **trim to your part:** skip the intro your hand sits out and finish on its last note;
   - **speed ladder:** a looped passage speeds itself up as you get it clean and slows back down when you lose it;
   - seamless looping of the game's loop section;
   - octave shift, filtering of very short notes, and a quiet guide for your part.
@@ -63,7 +65,9 @@ Pick a game, preview a track with ▶, then click **Play**.
 | Your part in the music | Muted, quiet guide, or full |
 | Loop | With a section, the section repeats, and the music leading into it replays with a 3-2-1 countdown before each pass (silence, for a section at the very start). Otherwise the intro plays once, then the loop section repeats as in the game. Shows per-pass accuracy; Esc → *Finish & see results* to stop |
 | Speed ladder | Needs Loop. Three passes in a row at 90% accuracy or better step up one speed (10, 15, 20, 25, 30, 40, 50 … 100%); three in a row under 90% step back down, until 10%, where it stays. The pass counter shows how the streak stands, the speed changes between passes (the music is re-rendered, so there is a short pause and a fresh 3-2-1 count-in), and the results screen lists every pass by speed. Where the ladder leaves you is the speed the dialog opens with next time |
+| Trim to my part | On by default. With no section chosen, the run starts at your part's first note (after a 3-2-1 count-in over the music just before it) and finishes once your last note has sounded, so a part that waits out a long intro — Heat Man's right hand doesn't start until 0:13 — doesn't make you wait with it. Every note of the part is still played, so records stay comparable; a looped run still repeats the song's own loop section |
 | Stop mode | The song stops before each note until you play it. A chord counts only when all its keys are held down together; a key let go early has to be pressed again |
+| Easy mode | Leaves out the notes marked *Not in easy* in the track editor, so a chord can be played as its top note and the tune stays recognisable. Easy score runs keep records of their own |
 | Octave shift / any octave | Fits melodies onto smaller keyboards |
 | Show suggested fingering | Finger numbers on notes and upcoming keys (on by default) |
 | Latency offset | Set from the results screen's timing calibration |
@@ -79,8 +83,9 @@ Switch the dialog to **Score run** to play for a record.
 - **Grades:** from accuracy — S ≥ 99%, A ≥ 90%, B ≥ 80%, C ≥ 70%, otherwise D. Every note hit with no wrong presses is a ★ full combo.
 - **Fixed rules:** Normal notes, exact octaves and no loop, so records stay comparable.
 - **Stop mode:** timing isn't judged, so the score reflects correct notes and wrong presses.
+- **Easy mode:** records are kept apart from full-mode ones.
 
-The bar above the song list chooses which part, speed and stop mode the list shows records and difficulty for, and score runs start from that selection. Tracks without notes for the selected part are hidden. **Stages only** hides jingles and other music, leaving the robot masters' stages and the Wily, Cossack, Dr. X and Proto Man stages (listed in `src/stages.ts`).
+The bar above the song list chooses which part, speed, stop mode and easy mode the list shows records and difficulty for, and score runs start from that selection. Tracks without notes for the selected part are hidden. **Stages only** hides jingles and other music, leaving the robot masters' stages and the Wily, Cossack, Dr. X and Proto Man stages (listed in `src/stages.ts`).
 
 ### Difficulty
 
@@ -102,19 +107,23 @@ The right hand plays both pulses (melody and harmony) and the left hand plays th
 
 The channels don't always split the way a pianist would. Needle Man's intro has the bass riff on Pulse 1 under the triangle's melody, and many songs put drum hits or echo effects on a pulse or the triangle. **Edit parts…** in the song dialog opens the track editor:
 
-- **The roll** shows Pulse 1, Pulse 2 and the triangle in their own lanes, with each note coloured by hand: blue right, orange left, grey outline removed, and red where right-hand notes held together are too far apart to reach. Zoom with − / + / Fit and scroll sideways.
+- **The roll** shows Pulse 1, Pulse 2 and the triangle in their own lanes, with each note coloured by hand: blue right, orange left, grey outline removed, and red where the notes won't play as written — right-hand notes held together too far apart to reach, or the two hands clashing (see **Octave down / up**). Zoom with − / + / Fit and scroll sideways.
 - **Selecting:** drag across the roll for a stretch of the song, or click one note. With nothing selected, an edit covers the whole song.
 - **Channels and sounds:** tick the channels the selection covers. A channel that uses more than one sound (duty cycle and volume, which the drivers set per instrument) shows a chip for each, lettered by how often it's used. Hover a chip to light up its notes; click it to leave that sound out.
 - **Send to** the right hand, the left hand, **Remove** (in no part, though it still plays in the music) or **Usual hand**.
+- **Swap hands** gives the selection's notes to the other hand: what the right hand plays goes to the left and the left's to the right. Use it where the lines cross over for a while — the triangle takes the tune and a pulse the bass — which would otherwise be one edit per channel. It swaps whatever the earlier edits left, so a removed note stays removed, and two swaps over the same notes put them back.
 - **Join echoes** handles a channel that repeats another a moment later, like Flash Man's Pulse 2, which echoes Pulse 1 a fifth of a second behind. Each echo (same pitch, on another channel, starting while the original sounds or up to 0.25 s after it ends) is folded into the original, which is held until the echo ends. Select the echoing channel; it works on a stretch, the whole song or one note. Repeated notes on one channel are never joined.
 - **Merge into one note** joins each channel's selected notes into one held note, from the first note's start to the last one's end, at the pitch held longest. Use it for a vibrato or trill the driver writes as many short notes. It needs a stretch of the song selected, and merging happens before the Notes filter, so a vibrato of short notes isn't dropped as a set of blips.
 - **Merge repeats** is the same idea, but only joins notes that follow each other on a channel at exactly the same pitch, even with a rest between them, so C C D D E becomes C D E. Other notes are left alone. It needs a stretch of the song selected, and only notes starting inside the stretch are joined.
 - **Play short notes** keeps the selected faint notes, which are normally dropped for being too short. They count in score runs and at every Notes setting. Click one note or select a stretch. A removed note stays removed.
 - **Slide** turns each channel's selected notes into one slide from the first note's pitch to the last one's, for a run too fast to play note by note, like the scale down Ring Man's Pulse 2 plays at 0:17. It shows in play as a thick sloping line with an arrow, labelled with the key to start on. Start it on time on a key within two semitones of its first note and it's a hit; after that, keys you press along it (up to two semitones past either end) until it ends are part of the slide, never wrong notes. You don't have to play every key or finish on the last one. Like a merge, it needs a stretch selected and happens before the Notes filter.
 - **Split** cuts each note on the ticked channels that's held across the start or end of the selected stretch, so you strike it again there. Pharoah Man's intro holds one long Pulse 1 note (after a merge) under four Pulse 2 notes: drag from one Pulse 2 note to the next and split, and the held note is re-struck with them. Range edges snap to note starts on any channel, which lines the cut up with the other parts. The selection line counts the notes held across its ends. A split applies in order with the other edits, so it can cut a merged note.
+- **Octave down / up** moves the selected note or stretch an octave, and is how you fix the hands clashing: a left-hand note that wants a key the right hand is already holding, or that reaches above it. Both are drawn red and counted in the summary line. Shifts stack, so pressing twice moves two octaves, and the arrow keys **↓** and **↑** do the same as the buttons. The music itself doesn't transpose — only what you play — so pick the line that's easier to move. Unlike the octave setting in the song dialog, this is part of the song's edits, so score runs play it too.
+- **Not in easy** (**E**) leaves the selected notes out of easy mode — the harmony under a melody note, say — while full mode still plays them. They're drawn as dashed outlines in their hand's colour.
 - **Practise from here ▶** closes the editor and practises the selected stretch (or from the selected note to the end) with the song dialog's part and settings, as if you'd picked that section on the timeline. Stop mode stays as it was in the dialog. Its pause menu and results screen have **Back to editor**, which returns to the editor with the same selection and zoom. The editor also reopens where you left it for each song, until the page reloads. It doesn't change the song dialog: Score run, stop mode and your practice section stay as they were for normal play.
+- **Edit parts here** in a run's pause menu is the way back: it ends the run and opens the editor on the song, with a gold **marker** down the roll where the music had reached and the roll scrolled to it. The selection starts as the whole song, so an edit can't land on a stretch you picked somewhere else, and the marker stays (click it to clear it) while you select around it.
 - **▶ Listen** plays the selection, optionally with only the selected channels, to help tell sounds apart.
-- **Edits** are listed in order, and a later one wins where they overlap. Hover one to see its notes; ✕ removes it. **Ctrl+Z** undoes your last change and **Ctrl+Y** redoes it.
+- **Edits** are listed in order, and a later one wins where they overlap. Hover one to see its notes; ✕ removes it. **Delete** removes the selection, and **Ctrl+Z** undoes your last change while **Ctrl+Y** redoes it.
 
 Edits are saved per song in `track-edits.json` and apply to every part, difficulty rating and fingering. Records set before an edit were played on the old parts. `npx tsx tools/hands.ts <game> <id>` shows the hands over time.
 

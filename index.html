@@ -48,6 +48,7 @@
             <option value="0.8">80%</option><option value="0.9">90%</option><option value="1">100%</option>
           </select>
           <label class="filter-stop"><input type="checkbox" id="filter-stop" /> Stop mode</label>
+          <label class="filter-stop" title="Records and difficulty for easy mode, which leaves out the notes marked “Not in easy”"><input type="checkbox" id="filter-easy" /> Easy</label>
           <label class="filter-stop" title="Only the robot masters' stages and the Wily, Cossack, Dr. X and Proto Man stages"><input type="checkbox" id="filter-stages" /> Stages only</label>
           <span id="filter-summary" class="filter-summary"></span>
         </div>
@@ -127,6 +128,8 @@
           <label><input type="checkbox" name="loop" /> Loop (keep repeating the song, or the section, until you choose Finish)</label>
           <label><input type="checkbox" name="ladder" /> Speed ladder (3 looped passes at 90%+ step up a speed, 3 under it step back down)</label>
           <label><input type="checkbox" name="waitMode" /> Stop mode (song stops before each note until you play it)</label>
+          <label><input type="checkbox" name="easy" /> Easy mode (leave out the notes marked “Not in easy” in Edit parts)</label>
+          <label><input type="checkbox" name="trimToPart" /> Trim to my part (start at my first note and finish after my last)</label>
           <label><input type="checkbox" name="octaveForgiving" /> Accept any octave</label>
           <label><input type="checkbox" name="showNoteNames" /> Show note names</label>
           <label><input type="checkbox" name="showFingering" /> Show suggested fingering (1 = thumb … 5 = little finger)</label>
@@ -162,15 +165,20 @@
           <span class="hint">Send to</span>
           <button type="button" class="btn small" data-role="R" style="color:#3cbcfc">Right hand</button>
           <button type="button" class="btn small" data-role="L" style="color:#fca044">Left hand</button>
-          <button type="button" class="btn small" data-role="off">Remove</button>
+          <button type="button" class="btn small" data-role="off" title="Remove the selected note or stretch so it isn't played (Delete)">Remove</button>
           <button type="button" class="btn small" data-role="default" title="Pulses to the right hand, triangle to the left">Usual hand</button>
+          <button type="button" class="btn small" data-role="swap" title="Give the selected stretch's notes to the other hand: what the right hand plays goes to the left and the left's to the right. Use it where the lines cross over, so the triangle has the tune and a pulse the bass. Removed notes stay removed">Swap hands</button>
           <span class="hint">or</span>
           <button type="button" class="btn small" data-role="join" title="Fold each note on the selected channels that repeats a note of the same pitch on another channel (an echo, still sounding or just ended) into that note, held until the echo ends. Works on a stretch, the whole song or one note">Join echoes</button>
           <button type="button" class="btn small" data-role="merge" title="Join each channel's selected notes (a vibrato or trill written as many short notes) into one held note at the pitch held longest. Select a stretch of the song first">Merge into one note</button>
           <button type="button" class="btn small" data-role="tie" title="On each channel, join selected notes that follow each other at exactly the same pitch into one held note. Notes of other pitches stay as they are. Select a stretch of the song first">Merge repeats</button>
           <button type="button" class="btn small" data-role="slide" title="Turn each channel's selected notes (a run too fast to play note by note) into one slide from the first note's pitch to the last's: start it on time near its first key, then sweep along the keys. Select a stretch of the song first">Slide</button>
           <button type="button" class="btn small" data-role="split" title="Cut each note on the selected channels that's held across the start or end of the selected stretch, so you strike it again there. Drag from where the first new note should start to where the next should (edges snap to note starts on any channel)">Split</button>
+          <button type="button" class="btn small" data-role="easy-off" title="Leave the selected notes out of easy mode (E), such as the harmony under a melody note, so a chord is played as one key. Full mode still plays them; they're drawn as outlines in their hand's colour">Not in easy</button>
           <button type="button" class="btn small" data-role="keep" title="Play the selected short notes (the faint ones), which are normally dropped for being too short. Click one note or select a stretch. A removed note stays removed">Play short notes</button>
+          <span class="hint">or move</span>
+          <button type="button" class="btn small" data-role="8vb" title="Move the selected note or stretch down an octave (↓). Use it where the hands clash — the red notes — to take one line out of the other's way. It stacks: press twice for two octaves">Octave down</button>
+          <button type="button" class="btn small" data-role="8va" title="Move the selected note or stretch up an octave (↑). It stacks: press twice for two octaves">Octave up</button>
         </div>
       </fieldset>
       <fieldset>
@@ -191,7 +199,7 @@
       <div class="hud">
         <div class="hud-left"><div id="hud-title"></div><div id="hud-accuracy"></div><div id="hud-pass" class="hud-pass"></div></div>
         <div class="hud-center"><div id="hud-combo"></div></div>
-        <div class="hud-right"><div id="hud-score">0</div><div class="hud-keys"><span style="color:#3cbcfc">■</span> right hand <span style="color:#fca044">■</span> left hand · Esc pause</div></div>
+        <div class="hud-right"><div id="hud-score">0</div><div id="hud-time" class="hud-time"></div><div class="hud-keys"><span style="color:#3cbcfc">■</span> right hand <span style="color:#fca044">■</span> left hand · Esc pause</div></div>
         <div class="progress"><div id="hud-progress"></div></div>
       </div>
       <div id="countdown" class="countdown"></div>
@@ -200,10 +208,12 @@
       <div id="pause-overlay" class="overlay" hidden>
         <div class="panel">
           <h2>Paused</h2>
+          <p id="pause-midi" class="hint" hidden></p>
           <div class="actions column">
             <button class="btn primary" data-action="resume">Resume</button>
             <button class="btn" data-action="finish">Finish &amp; see results</button>
             <button class="btn" data-action="restart">Restart</button>
+            <button class="btn" data-action="edit-here">Edit parts here</button>
             <button class="btn" data-action="editor">Back to editor</button>
             <button class="btn" data-action="quit">Quit</button>
           </div>

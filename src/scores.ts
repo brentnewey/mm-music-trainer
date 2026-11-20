@@ -63,13 +63,18 @@ export function recordAccuracy(rec: ScoreRecord): number {
   });
 }
 
-export interface ScoreKey { game: string; id: number; chart: string; speed: number; stop: boolean }
+/** `easy` runs (easy mode) keep records of their own */
+export interface ScoreKey { game: string; id: number; chart: string; speed: number; stop: boolean; easy?: boolean }
 
 const LOCAL_KEY = 'scores';
 
 export function scoreKey(k: ScoreKey) {
-  return `${k.game}:${k.id.toString(16).padStart(2, '0')}:${k.chart}:${Math.round(k.speed * 100)}:${k.stop ? 'stop' : 'flow'}`;
+  return `${k.game}:${k.id.toString(16).padStart(2, '0')}:${k.chart}:${Math.round(k.speed * 100)}:${k.stop ? 'stop' : 'flow'}${k.easy ? ':easy' : ''}`;
 }
+
+/** A record's part, speed, stop mode and easy mode, as shown with it */
+export const describeKey = (k: Pick<ScoreKey, 'chart' | 'speed' | 'stop' | 'easy'>) =>
+  `${CHARTS.find((c) => c.id === k.chart)?.label ?? k.chart} · ${Math.round(k.speed * 100)}%${k.stop ? ' · stop mode' : ''}${k.easy ? ' · easy' : ''}`;
 
 export const getScores = () => loadJson<Record<string, ScoreRecord>>(LOCAL_KEY, {});
 
@@ -108,15 +113,14 @@ export function recordRun(k: ScoreKey, stats: JudgeStats, summary: Summary): { p
 }
 
 /** The chart, speed and stop setting the song list shows records for, and score runs start with */
-export interface ScoreView { chart: string; speed: number; stop: boolean }
+export interface ScoreView { chart: string; speed: number; stop: boolean; easy: boolean }
 
 export function getScoreView(): ScoreView {
-  const v = loadJson<ScoreView>('scoreView', { chart: 'right', speed: 1, stop: false });
+  const v = loadJson<ScoreView>('scoreView', { chart: 'right', speed: 1, stop: false, easy: false });
   return { ...v, chart: CHANNEL_CHARTS[v.chart] ?? RETIRED_CHARTS[v.chart] ?? v.chart };
 }
 export const saveScoreView = (v: ScoreView) => saveJson('scoreView', v);
-export const describeView = (v: ScoreView) =>
-  `${CHARTS.find((c) => c.id === v.chart)?.label ?? v.chart} · ${Math.round(v.speed * 100)}%${v.stop ? ' · stop mode' : ''}`;
+export const describeView = (v: ScoreView) => describeKey(v);
 
 /** One-time import of bests from the earlier "ranked run" format (full speed, no stop mode). */
 export function migrateLegacyBests() {
